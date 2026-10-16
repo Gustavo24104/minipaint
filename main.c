@@ -110,6 +110,7 @@ void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int m
 }
 
 
+// mouse mexendo
 void mousePosCallback(GLFWwindow *janela, double x, double y) {
     if(glfwGetMouseButton(janela, 0)) {
         switch(estadoAtual) {
@@ -148,6 +149,48 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
                         putPixel((int) vx, (int) vy, corBG);
                     }
                 }
+                break;
+            }
+            case linha: {
+                break;
+            }
+            case retanguloVazio: {
+
+                break;
+            }
+            case retanguloCheio: {
+
+                break;
+            }
+            case circuloVazio: {
+
+                break;
+            }
+            case circuloCheio: {
+
+                break;
+            }
+            case baldeDeTinta: { // floodfill (nao recursivo - como otimizar?)
+
+                break;
+            }
+            default: ;
+        }
+    }
+}
+
+// clique único
+void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
+    if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
+        switch(estadoAtual) {
+            case pincel: {
+                Color c = {0, 0, 0};
+                putPixel((int) xMouse, (int) yMouse, c);
+                // como eh so um clique (o mouse nao ta mexendo) nao precisa interpolar...
+                break;
+            }
+            case borracha: {
+                putPixel((int) xMouse, (int) yMouse, corBG);
                 break;
             }
             case linha: {
@@ -230,6 +273,9 @@ int main(void) {
     DrawRectangle(0, 0, 799, 599, (Color) {255, 0, 0});
     glfwSetCursorPosCallback(janela, mousePosCallback);
     glfwSetKeyCallback(janela, HandleKeyboard);
+    glfwSetMouseButtonCallback(janela, mouseButtonCallback);
+
+    // main loop
     while(!glfwWindowShouldClose(janela)) {
 
         glfwPollEvents();
