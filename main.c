@@ -37,6 +37,7 @@ GLdouble xMouse, yMouse;
 Color corAtual = {0, 0, 0}; // começa no preto
 const Color corBG = {255, 255, 255};
 
+
 //TODO: Alterar cores
 void putPixel(int x, int y, Color cor) {
     int index = (y * 800 + x) * 3;
@@ -76,10 +77,11 @@ void DrawLineDDA(int x1, int y1, int x2, int y2, Color cor) {
     }
 }
 
+
+//TODO: Implementar
 void DrawLineBresenham(int x1, int y1, int x2, int y2, Color c) {
 
 }
-
 
 void DrawRectangle(int x1, int y1, int x2, int y2, Color c) {
     DrawLineDDA(x1, y1, x2, y1, c);
@@ -95,6 +97,7 @@ void clearCanvas() {
     }
 }
 
+//TODO: Isso tem q ser UI dps
 void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int mods) {
     if(action == GLFW_PRESS) {
         if(key == GLFW_KEY_C) {
@@ -112,11 +115,9 @@ void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int m
 
 // mouse mexendo
 void mousePosCallback(GLFWwindow *janela, double x, double y) {
-    if(glfwGetMouseButton(janela, 0)) {
+    if(glfwGetMouseButton(janela, 0)) { // "arrastar"
         switch(estadoAtual) {
             case pincel: {
-                // printf("pincel\n")
-                // ;
                 Color c = {0, 0, 0};
                 putPixel((int) xMouse, (int) yMouse, c);
                 // interpolação...
@@ -221,6 +222,7 @@ void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
     }
 }
 
+
 int main(void) {
     clearCanvas();
     GLFWwindow *janela;
@@ -257,7 +259,6 @@ int main(void) {
     glfwMakeContextCurrent(janela);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    // glOrtho(0.0f, 800, 600, 0.0f, 0.0f, 1.0f);
 
     // A ideia aqui eh usar uma textura, assim nao tem que salvar todos os pixels que tamo colocando
     // todas as funções aqui sao pra configurar a textura
@@ -269,8 +270,10 @@ int main(void) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
-
+    // borda da tela
     DrawRectangle(0, 0, 799, 599, (Color) {255, 0, 0});
+
+    // eh melhor usar essas funções de callback do que ficar fazendo polling no laço principal
     glfwSetCursorPosCallback(janela, mousePosCallback);
     glfwSetKeyCallback(janela, HandleKeyboard);
     glfwSetMouseButtonCallback(janela, mouseButtonCallback);
@@ -281,6 +284,8 @@ int main(void) {
         glfwPollEvents();
         glfwGetCursorPos(janela, &xMouse, &yMouse); // preciso disso pra fazer interlopacao qdo desenhar
 
+        // eh interessante ver os frames que a aplicação ta pegando
+        // nao serve mto pra medir performance eu acho, mas da pra ter uma ideia
         double curr = glfwGetTime();
         frameCount++;
         delta = curr - lastTime;
@@ -290,6 +295,7 @@ int main(void) {
             lastTime = curr;
         }
 
+        // mais coisa da textura, atualizando ela no buffer e enviando pro oepnGL dnv
         glClear(GL_COLOR_BUFFER_BIT);
         glEnable(GL_TEXTURE_2D);
         glBindTexture(GL_TEXTURE_2D, canvasTextures);
