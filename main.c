@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <GLFW/glfw3.h>
 #include <math.h>
+#include <string.h>
+#include <time.h>
 
 
 enum Tool {
@@ -35,26 +37,27 @@ enum BrushSize tamahnoAtual = curto;
 GLdouble xMouse, yMouse;
 Color corAtual = {0, 0, 0}; // começa no preto
 const Color corBG = {255, 255, 255};
-bool drawing = false;
+bool previewingDraw = false;
 double startX, startY;
 
 
 
 //TODO: Alterar cores
 void putPixel(int x, int y, Color cor) {
-    int index = (y * 800 + x) * 3;
-    switch(tamahnoAtual) {
-        case curto: {
-            canvas[index] = cor.r;
-            canvas[index + 1] = cor.g;
-            canvas[index + 2] = cor.b;
-            break;
-        } case medio: { //TODO!
-          break;
-        } case grosso: { //TODO!
-            break;
+        int index = (y * 800 + x) * 3;
+        // unsigned char *buff = !previewingDraw ? canvas : tmpBuffer;
+        switch(tamahnoAtual) {
+            case curto: {
+                canvas[index] = cor.r;
+                canvas[index + 1] = cor.g;
+                canvas[index + 2] = cor.b;
+                break;
+            } case medio: { //TODO!
+                break;
+            } case grosso: { //TODO!
+                break;
+            }
         }
-    }
 }
 
 
@@ -81,6 +84,7 @@ void DrawLineDDA(int x1, int y1, int x2, int y2, Color cor) {
 }
 
 
+
 //TODO: Implementar
 void DrawLineBresenham(int x1, int y1, int x2, int y2, Color c) {
 
@@ -95,9 +99,10 @@ void DrawRectangle(int x1, int y1, int x2, int y2, Color c) {
 
 
 void clearBuffer(unsigned char *buff) {
-    for (int i = 0; i < 800 * 600 * 3; ++i) {
-        buff[i] = 255;
-    }
+    memset(buff, 255, 800 * 600 * 3);
+    // for (int i = 0; i < 800 * 600 * 3; ++i) {
+    //     buff[i] = 255;
+    // }
 }
 
 //TODO: Isso tem q ser UI dps
@@ -159,9 +164,14 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
             break;
         }
         case linha: {
-            if(drawing) {
+            static int antX = 0, antY = 0;
+            if(previewingDraw) {
                 // DrawLineDDA((int) startX, (int) startY, (int) x, (int) y, corAtual);
+
+                antX = (int) x;
+                antY = (int) y;
             }
+
             break;
         }
         case retanguloVazio: {
@@ -205,15 +215,15 @@ void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
                 break;
             }
             case linha: {
-                if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && drawing) {
-                    drawing = false;
+                if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
+                    previewingDraw = false;
                     DrawLineDDA( (int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
                     printf("segundo clique registrado 2\n");
                     printf("x1: %lf | y1: %lf\n x2: %lf | y2: %lf\n",
                     startX, startY, xMouse, yMouse);
-                } else if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && !drawing) {
+                } else if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && !previewingDraw) {
                     glfwGetCursorPos(janela, &startX, &startY);
-                    drawing = true;
+                    previewingDraw = true;
                     printf("aguardando segundo clique\n");
                 }
                 // else if(drawing && action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
@@ -287,10 +297,12 @@ int main(void) {
     glfwMakeContextCurrent(janela);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
+    // glOrtho(0.0f, 800, 600, 0.0f, 0.0f, 1.0f);
+
 
     // A ideia aqui eh usar uma textura, assim nao tem que salvar todos os pixels que tamo colocando
     // todas as funções aqui sao pra configurar a textura
-    GLuint canvasTextures;
+    GLuint canvasTextures, tmpTxt;
     glGenTextures(1, &canvasTextures);
     glBindTexture(GL_TEXTURE_2D, canvasTextures);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 800, 600, 0,
@@ -310,7 +322,7 @@ int main(void) {
     while(!glfwWindowShouldClose(janela)) {
 
         glfwPollEvents();
-        glfwGetCursorPos(janela, &xMouse, &yMouse); // preciso disso pra fazer interlopacao qdo desenhar
+        glfwGetCursorPos(janela, &xMouse, &yMouse); // preciso disso pra fazer interpolacao qdo desenhar
 
         // eh interessante ver os frames que a aplicação ta pegando
         // nao serve mto pra medir performance eu acho, mas da pra ter uma ideia
@@ -345,7 +357,6 @@ int main(void) {
 
         glTexCoord2f(1.0f, 0.0f);
         glVertex2f(1.0f, 1.0f);
-
         glEnd();
 
         glfwSwapBuffers(janela);
