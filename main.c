@@ -23,23 +23,28 @@ enum BrushSize {
     grosso = 3,
 };
 
+typedef struct {
+    int r, g, b;
+} Color;
+
 
 
 // variaveis globais D:
 unsigned char canvas[800 * 600 * 3];
 enum Tool estadoAtual = pincel;
 enum BrushSize tamahnoAtual = curto;
-GLdouble xMouse, yMouse, lastX, lastY;
-
+GLdouble xMouse, yMouse;
+Color corAtual = {0, 0, 0}; // começa no preto
+const Color corBG = {255, 255, 255};
 
 //TODO: Alterar cores
-void putPixel(int x, int y, int r, int g, int b) {
+void putPixel(int x, int y, Color cor) {
     int index = (y * 800 + x) * 3;
     switch(tamahnoAtual) {
         case curto: {
-            canvas[index] = r;
-            canvas[index + 1] = g;
-            canvas[index + 2] = b;
+            canvas[index] = cor.r;
+            canvas[index + 1] = cor.g;
+            canvas[index + 2] = cor.b;
             break;
         } case medio: { //TODO!
           break;
@@ -50,106 +55,37 @@ void putPixel(int x, int y, int r, int g, int b) {
 }
 
 // r, g, b: out params
-void getPixel(int x, int y, int *r, int *g, int *b) {
+void getPixel(int x, int y, Color *color) {
     int index = (y * 800 + x) * 3;
-    *r = canvas[index];
-    *g = canvas[index + 1];
-    *b = canvas[index + 2];
+    color->r = canvas[index];
+    color->g = canvas[index + 1];
+    color->b = canvas[index + 2];
 }
 
 
-
-void mouseClick() {
-    switch(estadoAtual) {
-        case pincel: {
-            putPixel((int) xMouse, (int) yMouse, 0, 0, 0);
-            // interpolação...
-            if(lastX != xMouse || lastY != yMouse) {
-                double dist = sqrt(pow(lastX - xMouse, 2) + pow(lastY - yMouse, 2));
-                int amostras = (int) (dist / tamahnoAtual);
-
-                // parametrização!! :D
-                for (int i = 0; i <= amostras; ++i) {
-                    double t = (double) i / (double) amostras;
-                    double vx = lastX * (1 - t) + xMouse * t;
-                    double vy = lastY * (1 - t) + yMouse * t;
-                    putPixel((int) vx, (int) vy, 0, 0, 0);
-                }
-            }
-            break;
-        }
-        case borracha: {
-            putPixel((int) xMouse, (int) yMouse, 255, 255, 255);
-            // interpolação...
-            if(lastX != xMouse || lastY != yMouse) {
-                double dist = sqrt(pow(lastX - xMouse, 2) + pow(lastY - yMouse, 2));
-                int amostras = (int) (dist / tamahnoAtual);
-
-                // parametrização!! :D
-                for (int i = 0; i <= amostras; ++i) {
-                    double t = (double) i / (double) amostras;
-                    double vx = lastX * (1 - t) + xMouse * t;
-                    double vy = lastY * (1 - t) + yMouse * t;
-                    putPixel((int) vx, (int) vy, 255, 255, 255);
-                }
-            }
-            break;
-        }
-        case linha: {
-            // pra fazer o preview: possivelmente usar tipo um "canvas temporario" e desenhar nele
-            // ou entao, desenhar e limpar a linha qdo o mouse se mexer (talvez essa seja melhor)
-
-            break;
-        }
-        case retanguloVazio: {
-
-            break;
-        }
-        case retanguloCheio: {
-
-            break;
-        }
-        case circuloVazio: {
-
-            break;
-        }
-        case circuloCheio: {
-
-            break;
-        }
-        case baldeDeTinta: { // floodfill (nao recursivo - como otimizar?)
-
-            break;
-        }
-        default: ;
-    }
-}
-
-
-
-void DrawLineDDA(int x1, int y1, int x2, int y2, int r, int g, int b) {
+void DrawLineDDA(int x1, int y1, int x2, int y2, Color cor) {
     int dx = x2 - x1, dy = y2 - y1;
     int steps = abs(dx) >= abs(dy) ? dx : dy;
     float xInc = (float) dx / (float) steps, yInc = (float) dy / (float) steps;
     float xPos = (float) x1, yPos = (float) y1;
 
     for (int i = 0; i < steps; ++i) {
-        putPixel((int) xPos, (int) yPos, r, g, b);
+        putPixel((int) xPos, (int) yPos, cor);
         xPos += xInc;
         yPos += yInc;
     }
 }
 
-void DrawLineBresenham(int x1, int y1, int x2, int y2, int r, int g, int b) {
+void DrawLineBresenham(int x1, int y1, int x2, int y2, Color c) {
 
 }
 
 
-void DrawRectangle(int x1, int y1, int x2, int y2, int r, int g, int b) {
-    DrawLineDDA(x1, y1, x2, y1, r, g, b);
-    DrawLineDDA(x2, y1, x2, y2, r, g, b);
-    DrawLineDDA(x1, y2, x2, y2, r, g, b);
-    DrawLineDDA(x1, y1, x1, y2, r, g, b);
+void DrawRectangle(int x1, int y1, int x2, int y2, Color c) {
+    DrawLineDDA(x1, y1, x2, y1, c);
+    DrawLineDDA(x2, y1, x2, y2, c);
+    DrawLineDDA(x1, y2, x2, y2, c);
+    DrawLineDDA(x1, y1, x1, y2, c);
 }
 
 
@@ -166,9 +102,82 @@ void HandleKeyboard(GLFWwindow *janela) {
         estadoAtual = borracha;
     } else if(glfwGetKey(janela, GLFW_KEY_P)) {
         estadoAtual = pincel;
+    } else if(glfwGetKey(janela, GLFW_KEY_L)) {
+        estadoAtual = linha;
     }
 }
 
+void mouseClick(GLFWwindow *janela) {
+
+}
+
+void mouseButtonCallback(GLFWwindow *janela, double x, double y) {
+    if(glfwGetMouseButton(janela, 0)) {
+        switch(estadoAtual) {
+            case pincel: {
+                // printf("pincel\n")
+                // ;
+                Color c = {0, 0, 0};
+                putPixel((int) xMouse, (int) yMouse, c);
+                // interpolação...
+                if(x != xMouse || y != yMouse) {
+                    double dist = sqrt(pow(x - xMouse, 2) + pow(y - yMouse, 2));
+                    int amostras = (int) (dist / tamahnoAtual);
+
+                    // parametrização!! :D
+                    for (int i = 0; i <= amostras; ++i) {
+                        double t = (double) i / (double) amostras;
+                        double vx = x * (1 - t) + xMouse * t;
+                        double vy = y * (1 - t) + yMouse * t;
+                        putPixel((int) vx, (int) vy, c);
+                    }
+                }
+                break;
+            }
+            case borracha: {
+                putPixel((int) xMouse, (int) yMouse, corBG);
+                // interpolação...
+                if(x != xMouse || y != yMouse) {
+                    double dist = sqrt(pow(x - xMouse, 2) + pow(y - yMouse, 2));
+                    int amostras = (int) (dist / tamahnoAtual);
+
+                    // parametrização!! :D
+                    for (int i = 0; i <= amostras; ++i) {
+                        double t = (double) i / (double) amostras;
+                        double vx = x * (1 - t) + xMouse * t;
+                        double vy = y * (1 - t) + yMouse * t;
+                        putPixel((int) vx, (int) vy, corBG);
+                    }
+                }
+                break;
+            }
+            case linha: {
+                break;
+            }
+            case retanguloVazio: {
+
+                break;
+            }
+            case retanguloCheio: {
+
+                break;
+            }
+            case circuloVazio: {
+
+                break;
+            }
+            case circuloCheio: {
+
+                break;
+            }
+            case baldeDeTinta: { // floodfill (nao recursivo - como otimizar?)
+
+                break;
+            }
+            default: ;
+        }
+    }
+}
 
 int main(void) {
     clearCanvas();
@@ -219,11 +228,13 @@ int main(void) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
 
-    DrawRectangle(0, 0, 799, 599, 255, 0, 0);
+    DrawRectangle(0, 0, 799, 599, (Color) {255, 0, 0});
+    // glfwSetMouseButtonCallback(janela, mouseButtonCallback);
+    glfwSetCursorPosCallback(janela, mouseButtonCallback);
     while(!glfwWindowShouldClose(janela)) {
 
         glfwPollEvents();
-        glfwGetCursorPos(janela, &xMouse, &yMouse);
+        glfwGetCursorPos(janela, &xMouse, &yMouse); // preciso disso pra fazer interlopacao qdo desenhar
 
         double curr = glfwGetTime();
         frameCount++;
@@ -258,20 +269,14 @@ int main(void) {
 
         glEnd();
         glfwSwapBuffers(janela);
-        glfwPollEvents();
 
-
-        if(glfwGetMouseButton(janela, 0)) {
-            mouseClick();
-        }
+        // if(glfwGetMouseButton(janela, 0)) {
+        //
+        // }
 
         HandleKeyboard(janela);
 
         // DrawRectangle(0, 0, 799, 599);
-
-        lastX = xMouse;
-        lastY = yMouse;
-
     }
 
     glDisable(GL_TEXTURE_2D);
