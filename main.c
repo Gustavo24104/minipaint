@@ -36,6 +36,7 @@ enum BrushSize tamahnoAtual = curto;
 GLdouble xMouse, yMouse;
 Color corAtual = {0, 0, 0}; // começa no preto
 const Color corBG = {255, 255, 255};
+bool secondClick = false;
 
 
 //TODO: Alterar cores
@@ -66,7 +67,7 @@ void getPixel(int x, int y, Color *color) {
 
 void DrawLineDDA(int x1, int y1, int x2, int y2, Color cor) {
     int dx = x2 - x1, dy = y2 - y1;
-    int steps = abs(dx) >= abs(dy) ? dx : dy;
+    int steps = abs(dx) >= abs(dy) ? abs(dx) : abs(dy);
     float xInc = (float) dx / (float) steps, yInc = (float) dy / (float) steps;
     float xPos = (float) x1, yPos = (float) y1;
 
@@ -156,7 +157,6 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
                 break;
             }
             case retanguloVazio: {
-
                 break;
             }
             case retanguloCheio: {
@@ -195,6 +195,18 @@ void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
                 break;
             }
             case linha: {
+                static double startX, startY;
+                if(!secondClick) {
+                    glfwGetCursorPos(janela, &startX, &startY);
+                    secondClick = true;
+                    printf("aguardando segundo clique\n");
+                } else {
+                    DrawLineDDA( (int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
+                    secondClick = false;
+                    printf("segundo clique registrado\n");
+                    printf("x1: %lf | y1: %lf\n x2: %lf | y2: %lf\n",
+                        startX, startY, xMouse, yMouse);
+                }
                 break;
             }
             case retanguloVazio: {
@@ -274,8 +286,8 @@ int main(void) {
     DrawRectangle(0, 0, 799, 599, (Color) {255, 0, 0});
 
     // eh melhor usar essas funções de callback do que ficar fazendo polling no laço principal
-    glfwSetCursorPosCallback(janela, mousePosCallback);
     glfwSetKeyCallback(janela, HandleKeyboard);
+    glfwSetCursorPosCallback(janela, mousePosCallback);
     glfwSetMouseButtonCallback(janela, mouseButtonCallback);
 
     // main loop
@@ -290,7 +302,7 @@ int main(void) {
         frameCount++;
         delta = curr - lastTime;
         if(delta >= 1) {
-            printf("frames: %ld | draw time: %lf ms \n", frameCount, 1000.0f / (float) frameCount);
+            // printf("frames: %ld | draw time: %lf ms \n", frameCount, 1000.0f / (float) frameCount);
             frameCount = 0;
             lastTime = curr;
         }
