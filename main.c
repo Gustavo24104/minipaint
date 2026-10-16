@@ -9,7 +9,7 @@
 enum Tool {
     pincel,
     borracha,
-    linha,
+    linha, //TODO: A linha so funciona arrastando, ta bom ou sera q precisa ser com 2 cliques?
     retanguloVazio,
     retanguloCheio,
     circuloVazio,
@@ -28,7 +28,6 @@ typedef struct {
 } Color;
 
 
-
 // variaveis globais D:
 unsigned char canvas[800 * 600 * 3];
 enum Tool estadoAtual = pincel;
@@ -36,7 +35,9 @@ enum BrushSize tamahnoAtual = curto;
 GLdouble xMouse, yMouse;
 Color corAtual = {0, 0, 0}; // começa no preto
 const Color corBG = {255, 255, 255};
-bool secondClick = false;
+bool drawing = false;
+double startX, startY;
+
 
 
 //TODO: Alterar cores
@@ -55,6 +56,7 @@ void putPixel(int x, int y, Color cor) {
         }
     }
 }
+
 
 // r, g, b: out params
 void getPixel(int x, int y, Color *color) {
@@ -92,9 +94,9 @@ void DrawRectangle(int x1, int y1, int x2, int y2, Color c) {
 }
 
 
-void clearCanvas() {
+void clearBuffer(unsigned char *buff) {
     for (int i = 0; i < 800 * 600 * 3; ++i) {
-        canvas[i] = 255;
+        buff[i] = 255;
     }
 }
 
@@ -102,7 +104,7 @@ void clearCanvas() {
 void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int mods) {
     if(action == GLFW_PRESS) {
         if(key == GLFW_KEY_C) {
-            clearCanvas();
+            clearBuffer(canvas);
         } else if(key == GLFW_KEY_B) {
             estadoAtual = borracha;
         } else if(key == GLFW_KEY_P) {
@@ -116,9 +118,9 @@ void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int m
 
 // mouse mexendo
 void mousePosCallback(GLFWwindow *janela, double x, double y) {
-    if(glfwGetMouseButton(janela, 0)) { // "arrastar"
-        switch(estadoAtual) {
-            case pincel: {
+    switch(estadoAtual) {
+        case pincel: {
+            if(glfwGetMouseButton(janela, 0)) { // "arrastar"
                 Color c = {0, 0, 0};
                 putPixel((int) xMouse, (int) yMouse, c);
                 // interpolação...
@@ -134,9 +136,11 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
                         putPixel((int) vx, (int) vy, c);
                     }
                 }
-                break;
             }
-            case borracha: {
+            break;
+        }
+        case borracha: {
+            if(glfwGetMouseButton(janela, 0)) {
                 putPixel((int) xMouse, (int) yMouse, corBG);
                 // interpolação...
                 if(x != xMouse || y != yMouse) {
@@ -151,62 +155,75 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
                         putPixel((int) vx, (int) vy, corBG);
                     }
                 }
-                break;
             }
-            case linha: {
-                break;
-            }
-            case retanguloVazio: {
-                break;
-            }
-            case retanguloCheio: {
-
-                break;
-            }
-            case circuloVazio: {
-
-                break;
-            }
-            case circuloCheio: {
-
-                break;
-            }
-            case baldeDeTinta: { // floodfill (nao recursivo - como otimizar?)
-
-                break;
-            }
-            default: ;
+            break;
         }
+        case linha: {
+            if(drawing) {
+                // DrawLineDDA((int) startX, (int) startY, (int) x, (int) y, corAtual);
+            }
+            break;
+        }
+        case retanguloVazio: {
+            break;
+        }
+        case retanguloCheio: {
+
+            break;
+        }
+        case circuloVazio: {
+
+            break;
+        }
+        case circuloCheio: {
+
+            break;
+        }
+        case baldeDeTinta: { // floodfill (nao recursivo - como otimizar?)
+
+            break;
+        }
+        default: ;
     }
 }
 
 // clique único
 void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
-    if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
         switch(estadoAtual) {
             case pincel: {
-                Color c = {0, 0, 0};
-                putPixel((int) xMouse, (int) yMouse, c);
-                // como eh so um clique (o mouse nao ta mexendo) nao precisa interpolar...
+                if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
+                    Color c = {0, 0, 0};
+                    putPixel((int) xMouse, (int) yMouse, c);
+                    // como eh so um clique (o mouse nao ta mexendo) nao precisa interpolar...
+                }
                 break;
             }
             case borracha: {
-                putPixel((int) xMouse, (int) yMouse, corBG);
+                if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
+                    putPixel((int) xMouse, (int) yMouse, corBG);
+                }
                 break;
             }
             case linha: {
-                static double startX, startY;
-                if(!secondClick) {
-                    glfwGetCursorPos(janela, &startX, &startY);
-                    secondClick = true;
-                    printf("aguardando segundo clique\n");
-                } else {
+                if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && drawing) {
+                    drawing = false;
                     DrawLineDDA( (int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
-                    secondClick = false;
-                    printf("segundo clique registrado\n");
+                    printf("segundo clique registrado 2\n");
                     printf("x1: %lf | y1: %lf\n x2: %lf | y2: %lf\n",
-                        startX, startY, xMouse, yMouse);
+                    startX, startY, xMouse, yMouse);
+                } else if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && !drawing) {
+                    glfwGetCursorPos(janela, &startX, &startY);
+                    drawing = true;
+                    printf("aguardando segundo clique\n");
                 }
+                // else if(drawing && action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
+                //     DrawLineDDA( (int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
+                //     drawing = false;
+                //     printf("segundo clique registrado\n");
+                //     printf("x1: %lf | y1: %lf\n x2: %lf | y2: %lf\n",
+                //     startX, startY, xMouse, yMouse);
+                // }
+
                 break;
             }
             case retanguloVazio: {
@@ -231,12 +248,11 @@ void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
             }
             default: ;
         }
-    }
 }
 
 
 int main(void) {
-    clearCanvas();
+    clearBuffer(canvas);
     GLFWwindow *janela;
     double delta = 0;
     double lastTime = 0;
@@ -302,7 +318,7 @@ int main(void) {
         frameCount++;
         delta = curr - lastTime;
         if(delta >= 1) {
-            // printf("frames: %ld | draw time: %lf ms \n", frameCount, 1000.0f / (float) frameCount);
+            printf("frames: %ld | draw time: %lf ms \n", frameCount, 1000.0f / (float) frameCount);
             frameCount = 0;
             lastTime = curr;
         }
