@@ -31,33 +31,37 @@ typedef struct {
 
 
 // variaveis globais D:
-unsigned char canvas[800 * 600 * 3];
+unsigned char canvas[800 * 600 * 3], tmpBuffer[800 * 600 * 3]; // buffer pra fazer preview de linha, retangulo etc
 enum Tool estadoAtual = pincel;
-enum BrushSize tamahnoAtual = curto;
-GLdouble xMouse, yMouse;
+enum BrushSize tamanhoAtual = curto;
+GLdouble xMouse, yMouse; // global pra poder interpolar qdo necessário
 Color corAtual = {0, 0, 0}; // começa no preto
-const Color corBG = {255, 255, 255};
+const Color corBG = {255, 255, 255}; // bg branco
 bool previewingDraw = false;
 double startX, startY;
+void (*drawFun)(int, int, int, int, Color); // acabei percebendo q toda funcao de desenho das ferramentas tinha essa...
+// ...cara, entao pensei q fosse melhor fazer com um ponteiro, ai da pra chamar "uma coisa so" ao inves de...
+// ...ficar fazendo vários if/else pra tudo
 
 
 
-//TODO: Alterar cores
+//TODO: Alterar cores, grossura do pincel
 void putPixel(int x, int y, Color cor) {
-        int index = (y * 800 + x) * 3;
-        // unsigned char *buff = !previewingDraw ? canvas : tmpBuffer;
-        switch(tamahnoAtual) {
-            case curto: {
-                canvas[index] = cor.r;
-                canvas[index + 1] = cor.g;
-                canvas[index + 2] = cor.b;
-                break;
-            } case medio: { //TODO!
-                break;
-            } case grosso: { //TODO!
-                break;
-            }
+    if (x < 0 || x >= 800 || y < 0 || y >= 600) return;
+    int index = (y * 800 + x) * 3;
+    unsigned char *buff = !previewingDraw ? canvas : tmpBuffer;
+    switch(tamanhoAtual) {
+        case curto: {
+            buff[index] = cor.r;
+            buff[index + 1] = cor.g;
+            buff[index + 2] = cor.b;
+            break;
+        } case medio: { //TODO!
+            break;
+        } case grosso: { //TODO!
+            break;
         }
+    }
 }
 
 
@@ -90,11 +94,35 @@ void DrawLineBresenham(int x1, int y1, int x2, int y2, Color c) {
 
 }
 
-void DrawRectangle(int x1, int y1, int x2, int y2, Color c) {
+// TODO: Dps tem q trocar pra bresenham...
+void DrawRectangleVazio(int x1, int y1, int x2, int y2, Color c) {
     DrawLineDDA(x1, y1, x2, y1, c);
     DrawLineDDA(x2, y1, x2, y2, c);
     DrawLineDDA(x1, y2, x2, y2, c);
     DrawLineDDA(x1, y1, x1, y2, c);
+}
+
+void DrawRectangleCheio(int x1, int y1, int x2, int y2, Color c) {
+    DrawLineDDA(x1, y1, x2, y1, c);
+    DrawLineDDA(x2, y1, x2, y2, c);
+    DrawLineDDA(x1, y2, x2, y2, c);
+    DrawLineDDA(x1, y1, x1, y2, c);
+    // faz algo pra preencher... (flood fill?)
+}
+
+//TODO
+void DrawCircleVazio(int x1, int y1, int x2, int y2, Color c) {
+
+}
+
+//TODO
+void DrawCircleCheio(int x1, int y1, int x2, int y2, Color c) {
+
+}
+
+//TODO
+void FloodFill(int xStart, int yStart, Color c) {
+
 }
 
 
@@ -116,6 +144,10 @@ void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int m
             estadoAtual = pincel;
         } else if(key == GLFW_KEY_L) {
             estadoAtual = linha;
+            drawFun = DrawLineDDA;
+        } else if(key == GLFW_KEY_R) {
+            estadoAtual = retanguloVazio;
+            drawFun = DrawRectangleVazio;
         }
     }
 }
@@ -131,7 +163,7 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
                 // interpolação...
                 if(x != xMouse || y != yMouse) {
                     double dist = sqrt(pow(x - xMouse, 2) + pow(y - yMouse, 2));
-                    int amostras = (int) (dist / tamahnoAtual);
+                    int amostras = (int) (dist / tamanhoAtual);
 
                     // parametrização!! :D
                     for (int i = 0; i <= amostras; ++i) {
@@ -150,7 +182,7 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
                 // interpolação...
                 if(x != xMouse || y != yMouse) {
                     double dist = sqrt(pow(x - xMouse, 2) + pow(y - yMouse, 2));
-                    int amostras = (int) (dist / tamahnoAtual);
+                    int amostras = (int) (dist / tamanhoAtual);
 
                     // parametrização!! :D
                     for (int i = 0; i <= amostras; ++i) {
@@ -163,101 +195,75 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
             }
             break;
         }
-        case linha: {
-            static int antX = 0, antY = 0;
-            if(previewingDraw) {
-                // DrawLineDDA((int) startX, (int) startY, (int) x, (int) y, corAtual);
-
-                antX = (int) x;
-                antY = (int) y;
-            }
-
-            break;
-        }
-        case retanguloVazio: {
-            break;
-        }
-        case retanguloCheio: {
-
-            break;
-        }
-        case circuloVazio: {
-
-            break;
-        }
-        case circuloCheio: {
-
-            break;
-        }
-        case baldeDeTinta: { // floodfill (nao recursivo - como otimizar?)
-
-            break;
-        }
         default: ;
     }
 }
 
+
 // clique único
 void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
-        switch(estadoAtual) {
-            case pincel: {
-                if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
-                    Color c = {0, 0, 0};
-                    putPixel((int) xMouse, (int) yMouse, c);
-                    // como eh so um clique (o mouse nao ta mexendo) nao precisa interpolar...
-                }
-                break;
+    switch(estadoAtual) {
+        case pincel: {
+            if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
+                Color c = {0, 0, 0};
+                putPixel((int) xMouse, (int) yMouse, c);
+                // como eh so um clique (o mouse nao ta mexendo) nao precisa interpolar...
             }
-            case borracha: {
-                if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
-                    putPixel((int) xMouse, (int) yMouse, corBG);
-                }
-                break;
-            }
-            case linha: {
-                if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
-                    previewingDraw = false;
-                    DrawLineDDA( (int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
-                    printf("segundo clique registrado 2\n");
-                    printf("x1: %lf | y1: %lf\n x2: %lf | y2: %lf\n",
-                    startX, startY, xMouse, yMouse);
-                } else if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && !previewingDraw) {
-                    glfwGetCursorPos(janela, &startX, &startY);
-                    previewingDraw = true;
-                    printf("aguardando segundo clique\n");
-                }
-                // else if(drawing && action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
-                //     DrawLineDDA( (int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
-                //     drawing = false;
-                //     printf("segundo clique registrado\n");
-                //     printf("x1: %lf | y1: %lf\n x2: %lf | y2: %lf\n",
-                //     startX, startY, xMouse, yMouse);
-                // }
-
-                break;
-            }
-            case retanguloVazio: {
-
-                break;
-            }
-            case retanguloCheio: {
-
-                break;
-            }
-            case circuloVazio: {
-
-                break;
-            }
-            case circuloCheio: {
-
-                break;
-            }
-            case baldeDeTinta: { // floodfill (nao recursivo - como otimizar?)
-
-                break;
-            }
-            default: ;
+            break;
         }
+        case borracha: {
+            if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
+                putPixel((int) xMouse, (int) yMouse, corBG);
+            }
+            break;
+        } default: { // Eu acabei percebendo que todo código pra essas ferramentas tava ficando igual, ...
+            // ...entao decidi usar ponteiro de funcao o.O
+            if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
+                previewingDraw = false;
+                drawFun( (int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
+            } else if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && !previewingDraw) {
+                glfwGetCursorPos(janela, &startX, &startY);
+                previewingDraw = true;
+            }
+        }
+        //
+        // case linha: {
+        //     if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
+        //         previewingDraw = false;
+        //         DrawLineDDA( (int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
+        //     } else if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && !previewingDraw) {
+        //         glfwGetCursorPos(janela, &startX, &startY);
+        //         previewingDraw = true;
+        //     }
+        //     break;
+        // }
+        // case retanguloVazio: {
+        //     if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
+        //         previewingDraw = false;
+        //         DrawRectangleVazio( (int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
+        //     } else if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && !previewingDraw) {
+        //         glfwGetCursorPos(janela, &startX, &startY);
+        //         previewingDraw = true;
+        //     }
+        //     break;
+        // }
+        // case retanguloCheio: {
+        //
+        //     break;
+        // }
+        // case circuloVazio: {
+        //
+        //     break;
+        // }
+        // case circuloCheio: {
+        //
+        //     break;
+        // }
+        // case baldeDeTinta: { // floodfill (nao recursivo - como otimizar?)
+        //
+        //     break;
+        // }
+    }
 }
 
 
@@ -311,7 +317,7 @@ int main(void) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
     // borda da tela
-    DrawRectangle(0, 0, 799, 599, (Color) {255, 0, 0});
+    DrawRectangleVazio(0, 0, 799, 599, (Color) {255, 0, 0});
 
     // eh melhor usar essas funções de callback do que ficar fazendo polling no laço principal
     glfwSetKeyCallback(janela, HandleKeyboard);
@@ -335,12 +341,29 @@ int main(void) {
             lastTime = curr;
         }
 
+        // renderizcao daquilo de previews
+        // uso um outro buffer temporario pra nao ficar um efeito de desenahr tudo
+        unsigned char *render = canvas;
+        if(previewingDraw) {
+            memcpy(tmpBuffer, canvas, 800 * 600 * 3);
+            render = tmpBuffer;
+            // ponteiro de funcao, pq tava tudo ficando igual
+            drawFun((int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
+            // if(estadoAtual == linha) { // eu acho q tem como tacar isso aqui pro callback de posicao do mouse mas meh
+            //     DrawLineDDA((int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
+            // } else if (estadoAtual == retanguloVazio) {
+            //     DrawRectangleVazio((int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
+            // } else if(estadoAtual == retanguloCheio) {
+            //
+            // }
+            render = tmpBuffer;
+        }
         // mais coisa da textura, atualizando ela no buffer e enviando pro oepnGL dnv
         glClear(GL_COLOR_BUFFER_BIT);
         glEnable(GL_TEXTURE_2D);
         glBindTexture(GL_TEXTURE_2D, canvasTextures);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 800, 600,
-            GL_RGB, GL_UNSIGNED_BYTE, canvas);
+            GL_RGB, GL_UNSIGNED_BYTE, render);
 
 
         // render
