@@ -95,23 +95,22 @@ void clearCanvas() {
     }
 }
 
-void HandleKeyboard(GLFWwindow *janela) {
-    if(glfwGetKey(janela, GLFW_KEY_C)) {
-        clearCanvas();
-    } else if(glfwGetKey(janela, GLFW_KEY_B)) {
-        estadoAtual = borracha;
-    } else if(glfwGetKey(janela, GLFW_KEY_P)) {
-        estadoAtual = pincel;
-    } else if(glfwGetKey(janela, GLFW_KEY_L)) {
-        estadoAtual = linha;
+void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int mods) {
+    if(action == GLFW_PRESS) {
+        if(key == GLFW_KEY_C) {
+            clearCanvas();
+        } else if(key == GLFW_KEY_B) {
+            estadoAtual = borracha;
+        } else if(key == GLFW_KEY_P) {
+            estadoAtual = pincel;
+        } else if(key == GLFW_KEY_L) {
+            estadoAtual = linha;
+        }
     }
 }
 
-void mouseClick(GLFWwindow *janela) {
 
-}
-
-void mouseButtonCallback(GLFWwindow *janela, double x, double y) {
+void mousePosCallback(GLFWwindow *janela, double x, double y) {
     if(glfwGetMouseButton(janela, 0)) {
         switch(estadoAtual) {
             case pincel: {
@@ -229,8 +228,8 @@ int main(void) {
 
 
     DrawRectangle(0, 0, 799, 599, (Color) {255, 0, 0});
-    // glfwSetMouseButtonCallback(janela, mouseButtonCallback);
-    glfwSetCursorPosCallback(janela, mouseButtonCallback);
+    glfwSetCursorPosCallback(janela, mousePosCallback);
+    glfwSetKeyCallback(janela, HandleKeyboard);
     while(!glfwWindowShouldClose(janela)) {
 
         glfwPollEvents();
@@ -268,15 +267,8 @@ int main(void) {
         glVertex2f(1.0f, 1.0f);
 
         glEnd();
+
         glfwSwapBuffers(janela);
-
-        // if(glfwGetMouseButton(janela, 0)) {
-        //
-        // }
-
-        HandleKeyboard(janela);
-
-        // DrawRectangle(0, 0, 799, 599);
     }
 
     glDisable(GL_TEXTURE_2D);
