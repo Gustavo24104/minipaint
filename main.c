@@ -44,26 +44,21 @@ void (*drawFun)(int, int, int, int, Color); // acabei percebendo q toda funcao d
 // ...ficar fazendo vários if/else pra tudo
 
 
-
-//TODO: Alterar cores, grossura do pincel
-void putPixel(int x, int y, Color cor) {
+void setPixel(int x, int y, Color cor) {
     if (x < 0 || x >= 800 || y < 0 || y >= 600) return;
     int index = (y * 800 + x) * 3;
     unsigned char *buff = !previewingDraw ? canvas : tmpBuffer;
-    switch(tamanhoAtual) {
-        case curto: {
-            buff[index] = cor.r;
-            buff[index + 1] = cor.g;
-            buff[index + 2] = cor.b;
-            break;
-        } case medio: { //TODO!
-            break;
-        } case grosso: { //TODO!
-            break;
-        }
-    }
+    buff[index] = cor.r;
+    buff[index + 1] = cor.g;
+    buff[index + 2] = cor.b;
 }
 
+void putPixel(int x, int y, Color cor) {
+    int area = tamanhoAtual - 1;
+    for (int dy = -area; dy <= area; dy++)
+        for (int dx = -area; dx <= area; dx++)
+            setPixel(x + dx, y + dy, cor);
+}
 
 // r, g, b: out params
 void getPixel(int x, int y, Color *color) {
@@ -72,7 +67,6 @@ void getPixel(int x, int y, Color *color) {
     color->g = canvas[index + 1];
     color->b = canvas[index + 2];
 }
-
 
 void DrawLineDDA(int x1, int y1, int x2, int y2, Color cor) {
     int dx = x2 - x1, dy = y2 - y1;
@@ -88,31 +82,69 @@ void DrawLineDDA(int x1, int y1, int x2, int y2, Color cor) {
 }
 
 
-
-//TODO: Implementar
 void DrawLineBresenham(int x1, int y1, int x2, int y2, Color c) {
+    int dx = abs(x2 - x1);
+    int dy = abs(y2 - y1);
+    int sx = x1 < x2 ? 1: -1;
+    int sy = y1 < y2 ? 1: -1;
+    int dist = dx - dy;
 
+    while (true) {
+        putPixel(x1, y1, c);
+        if (x1 == x2 && y1 == y2) { // Caso tenha chegado no destino para
+            break;
+        }
+        int e2 = 2 * dist; // Multiplica por 2 pra não ter q tratar com valores quebrados(0.5), dai fica otimizada a func
+        if (e2 > -dy) { // avanca X
+            dist -= dy;
+            x1 += sx;
+        }
+        if (e2 < dx) { // avanca y
+            dist += dx;
+            y1 += sy;
+        }
+    }
 }
 
-// TODO: Dps tem q trocar pra bresenham...
 void DrawRectangleVazio(int x1, int y1, int x2, int y2, Color c) {
-    DrawLineDDA(x1, y1, x2, y1, c);
-    DrawLineDDA(x2, y1, x2, y2, c);
-    DrawLineDDA(x1, y2, x2, y2, c);
-    DrawLineDDA(x1, y1, x1, y2, c);
+    DrawLineBresenham(x1, y1, x2, y1, c);
+    DrawLineBresenham(x2, y1, x2, y2, c);
+    DrawLineBresenham(x1, y2, x2, y2, c);
+    DrawLineBresenham(x1, y1, x1, y2, c);
 }
 
 void DrawRectangleCheio(int x1, int y1, int x2, int y2, Color c) {
-    DrawLineDDA(x1, y1, x2, y1, c);
-    DrawLineDDA(x2, y1, x2, y2, c);
-    DrawLineDDA(x1, y2, x2, y2, c);
-    DrawLineDDA(x1, y1, x1, y2, c);
+    DrawLineBresenham(x1, y1, x2, y1, c);
+    DrawLineBresenham(x2, y1, x2, y2, c);
+    DrawLineBresenham(x1, y2, x2, y2, c);
+    DrawLineBresenham(x1, y1, x1, y2, c);
     // faz algo pra preencher... (flood fill?)
 }
 
-//TODO
 void DrawCircleVazio(int x1, int y1, int x2, int y2, Color c) {
+    int r = (int) round(sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1))); //Pitagoras Sqrt((x2 − x1)^2 + (y2 − y1)^2)
+    int x = 0;
+    int y = r;
+    int d = 1 - r;
 
+    while (x <= y) {
+        putPixel(x1 + x, y1 + y, c);
+        putPixel(x1 - x, y1 + y, c);
+        putPixel(x1 + x, y1 - y, c);
+        putPixel(x1 - x, y1 - y, c);
+        putPixel(x1 + y, y1 + x, c);
+        putPixel(x1 - y, y1 + x, c);
+        putPixel(x1 + y, y1 - x, c);
+        putPixel(x1 - y, y1 - x, c);
+
+        if (d < 0) { // continua na mesma linha
+            d += 2 * x + 3;
+        } else { // desce uma linha
+            d += 2 * (x - y) + 5;
+            y--;
+        }
+        x++;
+    }
 }
 
 //TODO
@@ -144,14 +176,22 @@ void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int m
             estadoAtual = pincel;
         } else if(key == GLFW_KEY_L) {
             estadoAtual = linha;
-            drawFun = DrawLineDDA;
+            drawFun = DrawLineBresenham;
         } else if(key == GLFW_KEY_R) {
             estadoAtual = retanguloVazio;
             drawFun = DrawRectangleVazio;
+        } else if(key == GLFW_KEY_O) {
+             estadoAtual = circuloVazio;
+             drawFun = DrawCircleVazio;
+        } else if(key == GLFW_KEY_1) {
+            tamanhoAtual = curto;
+        } else if(key == GLFW_KEY_2) {
+            tamanhoAtual = medio;
+        } else if(key == GLFW_KEY_3) {
+            tamanhoAtual = grosso;
         }
     }
 }
-
 
 // mouse mexendo
 void mousePosCallback(GLFWwindow *janela, double x, double y) {
