@@ -29,14 +29,22 @@ typedef struct {
     int r, g, b;
 } Color;
 
+#define PRETO {0, 0, 0}
+#define BRANCO {255, 255, 255}
+#define VERMELHO {255, 0, 0}
+#define VERDE {0, 255, 0}
+#define AZUL {0, 0, 255}
+#define AMARELO {255, 255, 0}
+#define CIANO {0, 255, 255}
+#define MAGENTA {255, 0, 255}
 
 // variaveis globais D:
 unsigned char canvas[800 * 600 * 3], tmpBuffer[800 * 600 * 3]; // buffer pra fazer preview de linha, retangulo etc
 enum Tool estadoAtual = pincel;
 enum BrushSize tamanhoAtual = curto;
 GLdouble xMouse, yMouse; // global pra poder interpolar qdo necessário
-Color corAtual = {0, 0, 0}; // começa no preto
-const Color corBG = {255, 255, 255}; // bg branco
+Color corAtual = PRETO; // começa no preto
+const Color corBG = {120, 114, 118}; // bg fossil
 bool previewingDraw = false;
 double startX, startY;
 void (*drawFun)(int, int, int, int, Color); // acabei percebendo q toda funcao de desenho das ferramentas tinha essa...
@@ -54,18 +62,19 @@ void setPixel(int x, int y, Color cor) {
 }
 
 void putPixel(int x, int y, Color cor) {
-    int area = tamanhoAtual - 1;
+    int area = (int) tamanhoAtual - 1;
     for (int dy = -area; dy <= area; dy++)
         for (int dx = -area; dx <= area; dx++)
             setPixel(x + dx, y + dy, cor);
 }
 
-// r, g, b: out params
-void getPixel(int x, int y, Color *color) {
+Color getPixel(int x, int y) {
+    Color ret;
     int index = (y * 800 + x) * 3;
-    color->r = canvas[index];
-    color->g = canvas[index + 1];
-    color->b = canvas[index + 2];
+    ret.r = canvas[index];
+    ret.g = canvas[index + 1];
+    ret.b = canvas[index + 2];
+    return ret;
 }
 
 void DrawLineDDA(int x1, int y1, int x2, int y2, Color cor) {
@@ -154,15 +163,21 @@ void DrawCircleCheio(int x1, int y1, int x2, int y2, Color c) {
 
 //TODO
 void FloodFill(int xStart, int yStart, Color c) {
+    int stackStart = 0, stackEnd = 0;
 
 }
 
 
 void clearBuffer(unsigned char *buff) {
-    memset(buff, 255, 800 * 600 * 3);
+    // memset(buff, 125, 800 * 600 * 3);
     // for (int i = 0; i < 800 * 600 * 3; ++i) {
     //     buff[i] = 255;
     // }
+    for (int i = 0; i < 800 * 600 * 3; i += 3) {
+        buff[i] = corBG.r;
+        buff[i + 1] = corBG.g;
+        buff[i + 2] = corBG.b;
+    }
 }
 
 //TODO: Isso tem q ser UI dps
@@ -198,8 +213,7 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
     switch(estadoAtual) {
         case pincel: {
             if(glfwGetMouseButton(janela, 0)) { // "arrastar"
-                Color c = {0, 0, 0};
-                putPixel((int) xMouse, (int) yMouse, c);
+                putPixel((int) xMouse, (int) yMouse, corAtual);
                 // interpolação...
                 if(x != xMouse || y != yMouse) {
                     double dist = sqrt(pow(x - xMouse, 2) + pow(y - yMouse, 2));
@@ -210,7 +224,7 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
                         double t = (double) i / (double) amostras;
                         double vx = x * (1 - t) + xMouse * t;
                         double vy = y * (1 - t) + yMouse * t;
-                        putPixel((int) vx, (int) vy, c);
+                        putPixel((int) vx, (int) vy, corAtual);
                     }
                 }
             }
@@ -245,8 +259,7 @@ void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
     switch(estadoAtual) {
         case pincel: {
             if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
-                Color c = {0, 0, 0};
-                putPixel((int) xMouse, (int) yMouse, c);
+                putPixel((int) xMouse, (int) yMouse, corAtual);
                 // como eh so um clique (o mouse nao ta mexendo) nao precisa interpolar...
             }
             break;
