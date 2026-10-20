@@ -194,14 +194,15 @@ void DrawCircleCheio(int x1, int y1, int x2, int y2, Color c) {
     int y = r;
     int d = 1 - r;
     while (x <= y) {
-        putPixel(x1 + x, y1 + y, c);
-        putPixel(x1 - x, y1 + y, c);
-        putPixel(x1 + x, y1 - y, c);
-        putPixel(x1 - x, y1 - y, c);
-        putPixel(x1 + y, y1 + x, c);
-        putPixel(x1 - y, y1 + x, c);
-        putPixel(x1 + y, y1 - x, c);
-        putPixel(x1 - y, y1 - x, c);
+        for (int i = x1 - x; i <= x1 + x; i++) {
+            putPixel(i, y1 + y, c);
+            putPixel(i, y1 - y, c);
+        }
+
+        for (int i = x1 - y; i <= x1 + y; i++) {
+            putPixel(i, y1 + x, c);
+            putPixel(i, y1 - x, c);
+        }
 
 
         if (d < 0) { // continua na mesma linha
