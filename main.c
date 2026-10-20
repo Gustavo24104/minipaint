@@ -53,6 +53,7 @@ void (*drawFun)(int, int, int, int, Color); // acabei percebendo q toda funcao d
 // ...cara, entao pensei q fosse melhor fazer com um ponteiro, ai da pra chamar "uma coisa so" ao inves de...
 // ...ficar fazendo vários if/else pra tudo
 
+void FloodFill(int xStart, int yStart, Color newColor);
 
 void setPixel(int x, int y, Color cor) {
     if (x < 0 || x >= ALTURA || y < 0 || y >= LARGURA) return;
@@ -118,6 +119,7 @@ void DrawLineBresenham(int x1, int y1, int x2, int y2, Color c) {
     }
 }
 
+
 void DrawRectangleVazio(int x1, int y1, int x2, int y2, Color c) {
     DrawLineBresenham(x1, y1, x2, y1, c);
     DrawLineBresenham(x2, y1, x2, y2, c);
@@ -125,12 +127,30 @@ void DrawRectangleVazio(int x1, int y1, int x2, int y2, Color c) {
     DrawLineBresenham(x1, y1, x1, y2, c);
 }
 
+
 void DrawRectangleCheio(int x1, int y1, int x2, int y2, Color c) {
     DrawLineBresenham(x1, y1, x2, y1, c);
     DrawLineBresenham(x2, y1, x2, y2, c);
     DrawLineBresenham(x1, y2, x2, y2, c);
     DrawLineBresenham(x1, y1, x1, y2, c);
-    // faz algo pra preencher... (flood fill?)
+
+    if(x1 > x2) {
+        int tmp = x1;
+        x1 = x2;
+        x2 = tmp;
+    }
+
+    if(y1 > y2) {
+        int tmp = y1;
+        y1 = y2;
+        y2 = tmp;
+    }
+
+    for(int x = x1; x < x2; ++x) {
+        for(int y = y1; y < y2; ++y) {
+            setPixel(x, y, c);
+        }
+    }
 }
 
 void DrawCircleVazio(int x1, int y1, int x2, int y2, Color c) {
@@ -201,7 +221,7 @@ void FloodFill(int xStart, int yStart, Color newColor) {
 
     while(stackIdx > 0) {
         int y = stack[--stackIdx], x = stack[--stackIdx];
-        printf("%d\n", stackIdx);
+        // printf("%d\n", stackIdx);
         int lx = x;
         while(inside(lx - 1, y, startColor)) {
             setPixel(lx - 1, y, newColor); // set pixel pq nao importa o tamanho do pincel
@@ -243,8 +263,13 @@ void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int m
             estadoAtual = linha;
             drawFun = DrawLineBresenham;
         } else if(key == GLFW_KEY_R) {
-            estadoAtual = retanguloVazio;
-            drawFun = DrawRectangleVazio;
+            if(mods == GLFW_MOD_SHIFT) {
+                estadoAtual = retanguloCheio;
+                drawFun = DrawRectangleCheio;
+            } else {
+                estadoAtual = retanguloVazio;
+                drawFun = DrawRectangleVazio;
+            }
         } else if(key == GLFW_KEY_O) {
              estadoAtual = circuloVazio;
              drawFun = DrawCircleVazio;
