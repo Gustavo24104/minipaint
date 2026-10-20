@@ -11,7 +11,7 @@
 enum Tool {
     pincel,
     borracha,
-    linha, //TODO: A linha so funciona arrastando, ta bom ou sera q precisa ser com 2 cliques?
+    linha,
     retanguloVazio,
     retanguloCheio,
     circuloVazio,
@@ -37,9 +37,11 @@ typedef struct {
 #define AMARELO {255, 255, 0}
 #define CIANO {0, 255, 255}
 #define MAGENTA {255, 0, 255}
+#define ALTURA 800
+#define LARGURA 600
 
 // variaveis globais D:
-unsigned char canvas[800 * 600 * 3], tmpBuffer[800 * 600 * 3]; // buffer pra fazer preview de linha, retangulo etc
+unsigned char canvas[ALTURA * LARGURA * 3], tmpBuffer[ALTURA * LARGURA * 3]; // buffer pra fazer preview de linha, retangulo etc
 enum Tool estadoAtual = pincel;
 enum BrushSize tamanhoAtual = curto;
 GLdouble xMouse, yMouse; // global pra poder interpolar qdo necessário
@@ -53,8 +55,8 @@ void (*drawFun)(int, int, int, int, Color); // acabei percebendo q toda funcao d
 
 
 void setPixel(int x, int y, Color cor) {
-    if (x < 0 || x >= 800 || y < 0 || y >= 600) return;
-    int index = (y * 800 + x) * 3;
+    if (x < 0 || x >= ALTURA || y < 0 || y >= LARGURA) return;
+    int index = (y * ALTURA + x) * 3;
     unsigned char *buff = !previewingDraw ? canvas : tmpBuffer;
     buff[index] = cor.r;
     buff[index + 1] = cor.g;
@@ -69,11 +71,12 @@ void putPixel(int x, int y, Color cor) {
 }
 
 Color getPixel(int x, int y) {
+    unsigned char *buff = previewingDraw ? tmpBuffer : canvas;
     Color ret;
-    int index = (y * 800 + x) * 3;
-    ret.r = canvas[index];
-    ret.g = canvas[index + 1];
-    ret.b = canvas[index + 2];
+    int index = (y * ALTURA + x) * 3;
+    ret.r = buff[index];
+    ret.g = buff[index + 1];
+    ret.b = buff[index + 2];
     return ret;
 }
 
@@ -161,22 +164,69 @@ void DrawCircleCheio(int x1, int y1, int x2, int y2, Color c) {
 
 }
 
-//TODO
-void FloodFill(int xStart, int yStart, Color c) {
-    int stackStart = 0, stackEnd = 0;
 
+// inside se baseia na cor
+bool inside(int x, int y, Color c)  {
+    if (x < 0 || x >= ALTURA || y < 0 || y >= LARGURA) return false;
+    Color o = getPixel(x, y);
+    return c.r == o.r && c.g == o.g && c.b == o.b;
+}
+
+// auxiliar do flood fill
+void scan(int lx, int rx, int y, Color cor, int *stack, int *stackIdx) {
+    bool added = false;
+    for(int x = lx; x <= rx; ++x) {
+        if(!inside(x, y, cor)) {
+            added = false;
+        } else if (!added) {
+            stack[*stackIdx] = x;
+            stack[(*stackIdx) + 1] = y;
+            *stackIdx += 2;
+            added = true;
+        }
+    }
 }
 
 
-void clearBuffer(unsigned char *buff) {
-    // memset(buff, 125, 800 * 600 * 3);
-    // for (int i = 0; i < 800 * 600 * 3; ++i) {
+
+// https://en.wikipedia.org/wiki/Flood_fill#Span_filling
+void FloodFill(int xStart, int yStart, Color newColor) {
+    Color startColor = getPixel(xStart, yStart);
+    // if (compareColor(startColor, newColor)) return;
+    if(inside(xStart, yStart, newColor)) return;
+    int *stack = malloc(ALTURA * LARGURA * 2 * sizeof(int)); //x, y
+    int stackIdx = 0;
+    stack[stackIdx++] = xStart;
+    stack[stackIdx++] = yStart;
+
+    while(stackIdx > 0) {
+        int y = stack[--stackIdx], x = stack[--stackIdx];
+        printf("%d\n", stackIdx);
+        int lx = x;
+        while(inside(lx - 1, y, startColor)) {
+            setPixel(lx - 1, y, newColor); // set pixel pq nao importa o tamanho do pincel
+            lx--;
+        }
+        while(inside(x, y, startColor)) {
+            setPixel(x, y, newColor);
+            x++;
+        }
+        scan(lx, x - 1, y + 1, startColor, stack, &stackIdx);
+        scan(lx, x - 1, y - 1, startColor, stack, &stackIdx);
+    }
+    free(stack);
+}
+
+
+void clearCanvas() {
+    // memset(buff, 125, ALTURA * LARGURA * 3);
+    // for (int i = 0; i < ALTURA * LARGURA * 3; ++i) {
     //     buff[i] = 255;
     // }
-    for (int i = 0; i < 800 * 600 * 3; i += 3) {
-        buff[i] = corBG.r;
-        buff[i + 1] = corBG.g;
-        buff[i + 2] = corBG.b;
+    for (int i = 0; i < ALTURA * LARGURA * 3; i += 3) {
+        canvas[i] = corBG.r;
+        canvas[i + 1] = corBG.g;
+        canvas[i + 2] = corBG.b;
     }
 }
 
@@ -184,7 +234,7 @@ void clearBuffer(unsigned char *buff) {
 void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int mods) {
     if(action == GLFW_PRESS) {
         if(key == GLFW_KEY_C) {
-            clearBuffer(canvas);
+            clearCanvas();
         } else if(key == GLFW_KEY_B) {
             estadoAtual = borracha;
         } else if(key == GLFW_KEY_P) {
@@ -198,6 +248,10 @@ void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int m
         } else if(key == GLFW_KEY_O) {
              estadoAtual = circuloVazio;
              drawFun = DrawCircleVazio;
+        } else if(key == GLFW_KEY_F) {
+            estadoAtual = baldeDeTinta;
+        } else if(key == GLFW_KEY_M) {
+            corAtual = (Color) MAGENTA;
         } else if(key == GLFW_KEY_1) {
             tamanhoAtual = curto;
         } else if(key == GLFW_KEY_2) {
@@ -207,6 +261,7 @@ void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int m
         }
     }
 }
+
 
 // mouse mexendo
 void mousePosCallback(GLFWwindow *janela, double x, double y) {
@@ -269,7 +324,11 @@ void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
                 putPixel((int) xMouse, (int) yMouse, corBG);
             }
             break;
-        } default: { // Eu acabei percebendo que todo código pra essas ferramentas tava ficando igual, ...
+        } case baldeDeTinta: {
+            FloodFill((int) xMouse, (int) yMouse, corAtual);
+            break;
+        }
+        default: { // Eu acabei percebendo que todo código pra essas ferramentas tava ficando igual, ...
             // ...entao decidi usar ponteiro de funcao o.O
             if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
                 previewingDraw = false;
@@ -321,7 +380,7 @@ void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
 
 
 int main(void) {
-    clearBuffer(canvas);
+    clearCanvas();
     GLFWwindow *janela;
     double delta = 0;
     double lastTime = 0;
@@ -330,7 +389,7 @@ int main(void) {
     if(!glfwInit()) return -1;
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
 
-    janela = glfwCreateWindow(800, 600, "miniPaint!", NULL, NULL);
+    janela = glfwCreateWindow(ALTURA, LARGURA, "miniPaint!", NULL, NULL);
 
     if(!janela) {
         glfwTerminate();
@@ -356,7 +415,7 @@ int main(void) {
     glfwMakeContextCurrent(janela);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    // glOrtho(0.0f, 800, 600, 0.0f, 0.0f, 1.0f);
+    // glOrtho(0.0f, ALTURA, LARGURA, 0.0f, 0.0f, 1.0f);
 
 
     // A ideia aqui eh usar uma textura, assim nao tem que salvar todos os pixels que tamo colocando
@@ -364,7 +423,7 @@ int main(void) {
     GLuint canvasTextures, tmpTxt;
     glGenTextures(1, &canvasTextures);
     glBindTexture(GL_TEXTURE_2D, canvasTextures);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 800, 600, 0,
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, ALTURA, LARGURA, 0,
     GL_RGB, GL_UNSIGNED_BYTE, canvas);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -398,7 +457,7 @@ int main(void) {
         // uso um outro buffer temporario pra nao ficar um efeito de desenahr tudo
         unsigned char *render = canvas;
         if(previewingDraw) {
-            memcpy(tmpBuffer, canvas, 800 * 600 * 3);
+            memcpy(tmpBuffer, canvas, ALTURA * LARGURA * 3);
             render = tmpBuffer;
             // ponteiro de funcao, pq tava tudo ficando igual
             drawFun((int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
@@ -415,7 +474,7 @@ int main(void) {
         glClear(GL_COLOR_BUFFER_BIT);
         glEnable(GL_TEXTURE_2D);
         glBindTexture(GL_TEXTURE_2D, canvasTextures);
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 800, 600,
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, ALTURA, LARGURA,
             GL_RGB, GL_UNSIGNED_BYTE, render);
 
 
