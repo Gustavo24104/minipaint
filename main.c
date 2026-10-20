@@ -6,6 +6,8 @@
 #include <math.h>
 #include <string.h>
 #include <time.h>
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 
 enum Tool {
@@ -54,6 +56,11 @@ void (*drawFun)(int, int, int, int, Color); // acabei percebendo q toda funcao d
 // ...ficar fazendo vários if/else pra tudo
 
 void FloodFill(int xStart, int yStart, Color newColor);
+
+void SaveImage(char *nomeArquivo) {
+    stbi_write_png(nomeArquivo, ALTURA, LARGURA, 3, canvas, LARGURA * 4);
+    printf("salvo!\n");
+}
 
 void setPixel(int x, int y, Color cor) {
     if (x < 0 || x >= ALTURA || y < 0 || y >= LARGURA) return;
@@ -181,6 +188,31 @@ void DrawCircleVazio(int x1, int y1, int x2, int y2, Color c) {
 
 //TODO
 void DrawCircleCheio(int x1, int y1, int x2, int y2, Color c) {
+    int r = (int) round(sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1))); //Pitagoras Sqrt((x2 − x1)^2 + (y2 − y1)^2)
+
+    int x = 0;
+    int y = r;
+    int d = 1 - r;
+    while (x <= y) {
+        putPixel(x1 + x, y1 + y, c);
+        putPixel(x1 - x, y1 + y, c);
+        putPixel(x1 + x, y1 - y, c);
+        putPixel(x1 - x, y1 - y, c);
+        putPixel(x1 + y, y1 + x, c);
+        putPixel(x1 - y, y1 + x, c);
+        putPixel(x1 + y, y1 - x, c);
+        putPixel(x1 - y, y1 - x, c);
+
+
+        if (d < 0) { // continua na mesma linha
+            d += 2 * x + 3;
+        } else { // desce uma linha
+            d += 2 * (x - y) + 5;
+            y--;
+        }
+
+        x++;
+    }
 
 }
 
@@ -271,11 +303,21 @@ void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int m
                 drawFun = DrawRectangleVazio;
             }
         } else if(key == GLFW_KEY_O) {
-             estadoAtual = circuloVazio;
-             drawFun = DrawCircleVazio;
+            if(mods == GLFW_MOD_SHIFT) {
+                estadoAtual = circuloCheio;
+                drawFun = DrawCircleCheio;
+            } else {
+                estadoAtual = circuloVazio;
+                drawFun = DrawCircleVazio;
+            }
         } else if(key == GLFW_KEY_F) {
             estadoAtual = baldeDeTinta;
-        } else if(key == GLFW_KEY_M) {
+        } else if(key == GLFW_KEY_S) {
+            if(mods == GLFW_MOD_CONTROL) {
+                SaveImage("teste.png");
+            }
+        }
+        else if(key == GLFW_KEY_M) {
             corAtual = (Color) MAGENTA;
         } else if(key == GLFW_KEY_1) {
             tamanhoAtual = curto;
@@ -442,7 +484,6 @@ int main(void) {
     glLoadIdentity();
     // glOrtho(0.0f, ALTURA, LARGURA, 0.0f, 0.0f, 1.0f);
 
-
     // A ideia aqui eh usar uma textura, assim nao tem que salvar todos os pixels que tamo colocando
     // todas as funções aqui sao pra configurar a textura
     GLuint canvasTextures, tmpTxt;
@@ -479,20 +520,13 @@ int main(void) {
         }
 
         // renderizcao daquilo de previews
-        // uso um outro buffer temporario pra nao ficar um efeito de desenahr tudo
+        // uso um outro buffer temporario pra nao ficar um efeito de desenhar tudo
         unsigned char *render = canvas;
         if(previewingDraw) {
             memcpy(tmpBuffer, canvas, ALTURA * LARGURA * 3);
             render = tmpBuffer;
             // ponteiro de funcao, pq tava tudo ficando igual
             drawFun((int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
-            // if(estadoAtual == linha) { // eu acho q tem como tacar isso aqui pro callback de posicao do mouse mas meh
-            //     DrawLineDDA((int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
-            // } else if (estadoAtual == retanguloVazio) {
-            //     DrawRectangleVazio((int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
-            // } else if(estadoAtual == retanguloCheio) {
-            //
-            // }
             render = tmpBuffer;
         }
         // mais coisa da textura, atualizando ela no buffer e enviando pro oepnGL dnv
@@ -501,6 +535,7 @@ int main(void) {
         glBindTexture(GL_TEXTURE_2D, canvasTextures);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, ALTURA, LARGURA,
             GL_RGB, GL_UNSIGNED_BYTE, render);
+
 
 
         // render
