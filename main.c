@@ -8,7 +8,8 @@
 #include <time.h>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
-
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
 
 enum Tool {
     pincel,
@@ -39,15 +40,86 @@ typedef struct {
 #define AMARELO {255, 255, 0}
 #define CIANO {0, 255, 255}
 #define MAGENTA {255, 0, 255}
+
 #define ALTURA 800
 #define LARGURA 600
+#define UI_ALTURA 60
+
+typedef struct {
+    int x1, y1, x2, y2; // canto de cima/esquerda e canto de baixo/direita
+} Botao;
 
 // variaveis globais D:
 unsigned char canvas[ALTURA * LARGURA * 3], tmpBuffer[ALTURA * LARGURA * 3]; // buffer pra fazer preview de linha, retangulo etc
+
+unsigned char uiBuffer[ALTURA * UI_ALTURA * 3]; // buffer para a interface de cima
+bool desenhandoUI = false; // qdo true o setPixel escreve no uiBuffer
+bool cliqueNaUI = false; // botao do mouse foi apertado em cima da barra
+
+// posicao dos botoes na barra: {x1, y1, x2, y2} guarda os cantos (PODIA TER FEITO ISSO COM UM FOR)
+Botao botoesFerramenta[8] = { // + 44 no x1 e x2
+    {8, 10, 47, 49}, // pincel
+    {52, 10, 91, 49}, // borracha
+    {96, 10, 135, 49}, // linha
+    {140, 10, 179, 49}, // retangulo vazio
+    {184, 10, 223, 49}, // retangulo cheio
+    {228, 10, 267, 49}, // circulo vazio
+    {272, 10, 311, 49}, // circulo cheio
+    {316, 10, 355, 49}, // balde
+};
+Botao botoesTamanho[3] = { // + 44 no x1 e x2
+    {372, 10, 411, 49}, // fino
+    {416, 10, 455, 49}, // medio
+    {460, 10, 499, 49}, // grosso
+};
+Botao botoesCor[8] = {
+    {516, 7, 537, 28}, // preto
+    {542, 7, 563, 28}, // branco
+    {568, 7, 589, 28}, // vermelho
+    {594, 7, 615, 28}, // verde
+    {516, 31, 537, 52}, // azul
+    {542, 31, 563, 52}, // amarelo
+    {568, 31, 589, 52}, // ciano
+    {594, 31, 615, 52}, // magenta
+};
+Botao botaoNovo = {640, 10, 679, 49};
+Botao botaoSalvar = {692, 10, 731, 49};
+
+const Color paleta[8] = {PRETO, BRANCO, VERMELHO, VERDE, AZUL, AMARELO, CIANO, MAGENTA};
+const Color corUIFundo = {67, 67, 67};
+const Color corBotao = {190, 190, 190};
+const Color corBotaoPressionado = {255, 255, 255};
+const Color corDestaque = {0, 100, 255};
+const Color corIcone = {0, 0, 0};
+
+// icones da barra: indices 0-7 sao as ferramentas(mesma ordem do enum); 8 da o clear, 9 salva e 10-12 sao as espessuras
+// o CMake define o caminho completo da pasta assets; se compilar sem ele, usa a pasta relativa
+#ifndef ASSETS
+#define ASSETS "assets/"
+#endif
+#define TAM_ICONE 32
+const char *icons[13] = {
+    ASSETS "Pincel_icon.png",               // 0 - Pincel
+    ASSETS "Borracha_icon.png",             // 1 - Borracha
+    ASSETS "Linha_icon.png",                // 2 - Linha
+    ASSETS "Retangulo_icon.png",            // 3 - Retangulo
+    ASSETS "Retangulo_Preenchido_icon.png", // 4 - Ret. Cheio
+    ASSETS "Circulo_icon.png",              // 5 - Circulo
+    ASSETS "Circulo_Preenchido_icon.png",   // 6 - Circulo Cheio
+    ASSETS "Balde_icon.png",                // 7 - Balde
+    ASSETS "Resetar_icon.png",              // 8 - Resetar
+    ASSETS "Salvar_icon.png",               // 9 - Salvar
+    ASSETS "Linha_Fina_icon.png",           // 10 - Fino
+    ASSETS "Linha_Media_icon.png",          // 11 - Medio
+    ASSETS "Linha_Grossa_icon.png",         // 12 - Grosso
+};
+unsigned char *icones[13]; // pixels RGBA de cada icone (32x32), lidos pelo stbi_load
+
 enum Tool estadoAtual = pincel;
 enum BrushSize tamanhoAtual = curto;
+const enum BrushSize tamanhos[3] = {curto, medio, grosso}; // o que cada botao de espessura escolhe
 GLdouble xMouse, yMouse; // global pra poder interpolar qdo necessário
-Color corAtual = PRETO; // começa no preto
+int indiceCor = 0; // posicao da cor atual na paleta, começa no preto
 const Color corBG = {120, 114, 118}; // bg fossil
 bool previewingDraw = false;
 double startX, startY;
@@ -58,14 +130,27 @@ void (*drawFun)(int, int, int, int, Color); // acabei percebendo q toda funcao d
 void FloodFill(int xStart, int yStart, Color newColor);
 
 void SaveImage(char *nomeArquivo) {
-    stbi_write_png(nomeArquivo, ALTURA, LARGURA, 3, canvas, LARGURA * 4);
+    stbi_write_png(nomeArquivo, ALTURA, LARGURA, 3, canvas, ALTURA * 3);
     printf("salvo!\n");
 }
 
 void setPixel(int x, int y, Color cor) {
-    if (x < 0 || x >= ALTURA || y < 0 || y >= LARGURA) return;
+    unsigned char *buff;
+    int alturaBuff;
+
+    if (desenhandoUI) {
+        buff = uiBuffer;
+        alturaBuff = UI_ALTURA;
+    } else if (previewingDraw) {
+        buff = tmpBuffer;
+        alturaBuff = LARGURA;
+    } else {
+        buff = canvas;
+        alturaBuff = LARGURA;
+    }
+    if (x < 0 || x >= ALTURA || y < 0 || y >= alturaBuff) return;
+
     int index = (y * ALTURA + x) * 3;
-    unsigned char *buff = !previewingDraw ? canvas : tmpBuffer;
     buff[index] = cor.r;
     buff[index + 1] = cor.g;
     buff[index + 2] = cor.b;
@@ -101,7 +186,6 @@ void DrawLineDDA(int x1, int y1, int x2, int y2, Color cor) {
     }
 }
 
-
 void DrawLineBresenham(int x1, int y1, int x2, int y2, Color c) {
     int dx = abs(x2 - x1);
     int dy = abs(y2 - y1);
@@ -126,14 +210,12 @@ void DrawLineBresenham(int x1, int y1, int x2, int y2, Color c) {
     }
 }
 
-
 void DrawRectangleVazio(int x1, int y1, int x2, int y2, Color c) {
     DrawLineBresenham(x1, y1, x2, y1, c);
     DrawLineBresenham(x2, y1, x2, y2, c);
     DrawLineBresenham(x1, y2, x2, y2, c);
     DrawLineBresenham(x1, y1, x1, y2, c);
 }
-
 
 void DrawRectangleCheio(int x1, int y1, int x2, int y2, Color c) {
     DrawLineBresenham(x1, y1, x2, y1, c);
@@ -186,7 +268,6 @@ void DrawCircleVazio(int x1, int y1, int x2, int y2, Color c) {
     }
 }
 
-//TODO
 void DrawCircleCheio(int x1, int y1, int x2, int y2, Color c) {
     int r = (int) round(sqrt((x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1))); //Pitagoras Sqrt((x2 − x1)^2 + (y2 − y1)^2)
 
@@ -217,7 +298,6 @@ void DrawCircleCheio(int x1, int y1, int x2, int y2, Color c) {
 
 }
 
-
 // inside se baseia na cor
 bool inside(int x, int y, Color c)  {
     if (x < 0 || x >= ALTURA || y < 0 || y >= LARGURA) return false;
@@ -240,10 +320,9 @@ void scan(int lx, int rx, int y, Color cor, int *stack, int *stackIdx) {
     }
 }
 
-
-
 // https://en.wikipedia.org/wiki/Flood_fill#Span_filling
 void FloodFill(int xStart, int yStart, Color newColor) {
+    if (xStart < 0 || xStart >= ALTURA || yStart < 0 || yStart >= LARGURA) return;
     Color startColor = getPixel(xStart, yStart);
     // if (compareColor(startColor, newColor)) return;
     if(inside(xStart, yStart, newColor)) return;
@@ -270,7 +349,6 @@ void FloodFill(int xStart, int yStart, Color newColor) {
     free(stack);
 }
 
-
 void clearCanvas() {
     // memset(buff, 125, ALTURA * LARGURA * 3);
     // for (int i = 0; i < ALTURA * LARGURA * 3; ++i) {
@@ -283,43 +361,164 @@ void clearCanvas() {
     }
 }
 
-//TODO: Isso tem q ser UI dps
+// ---------------- Interface ----------------
+void selecionaFerramenta(enum Tool t) {
+    estadoAtual = t;
+    if (t == linha) {
+        drawFun = DrawLineBresenham;
+    }
+    else if (t == retanguloVazio) {
+        drawFun = DrawRectangleVazio;
+    }
+    else if (t == retanguloCheio) {
+        drawFun = DrawRectangleCheio;
+    }
+    else if (t == circuloVazio) {
+        drawFun = DrawCircleVazio;
+    }
+    else if (t == circuloCheio) {
+        drawFun = DrawCircleCheio;
+    }
+    // else NULL;
+}
+
+// botao fica branco com bordinha azul
+void DrawBotao(Botao b, bool selecionado) {
+    if (selecionado) {
+        DrawRectangleCheio(b.x1, b.y1, b.x2, b.y2, corBotaoPressionado);
+        DrawRectangleVazio(b.x1, b.y1, b.x2, b.y2, corDestaque);
+        DrawRectangleVazio(b.x1 + 1, b.y1 + 1, b.x2 - 1, b.y2 - 1, corDestaque);
+    } else {
+        DrawRectangleCheio(b.x1, b.y1, b.x2, b.y2, corBotao);
+    }
+}
+
+// quadradinho das cores
+void DrawBotaoCor(int i) {
+    Botao b = botoesCor[i];
+    if (i == indiceCor) {
+        DrawRectangleVazio(b.x1 - 2, b.y1 - 2, b.x2 + 2, b.y2 + 2, (Color) BRANCO);
+        DrawRectangleVazio(b.x1 - 1, b.y1 - 1, b.x2 + 1, b.y2 + 1, (Color) BRANCO);
+    }
+    DrawRectangleCheio(b.x1, b.y1, b.x2, b.y2, paleta[i]);
+    DrawRectangleVazio(b.x1, b.y1, b.x2, b.y2, (Color) {120, 120, 120}); // contorno cinza
+}
+
+void DrawIcone(int id, Botao b) {
+    if (icones[id] == NULL) return; // icone nao carregou
+
+    // o botao tem 40 e o icone 32 (sobra 8, entao 4 eh de cada lado)
+    int inicioX = b.x1 + 4;
+    int inicioY = b.y1 + 4;
+
+    for (int y = 0; y < TAM_ICONE; ++y) {
+        for (int x = 0; x < TAM_ICONE; ++x) {
+            unsigned char *icone = &icones[id][(y * TAM_ICONE + x) * 4];
+            unsigned char *fundo = &uiBuffer[((inicioY + y) * ALTURA + inicioX + x) * 3];
+            int a = icone[3];
+
+            Color cor;
+            cor.r = (icone[0] * a + fundo[0] * (255 - a)) / 255;
+            cor.g = (icone[1] * a + fundo[1] * (255 - a)) / 255;
+            cor.b = (icone[2] * a + fundo[2] * (255 - a)) / 255;
+            setPixel(inicioX + x, inicioY + y, cor);
+        }
+    }
+}
+
+void DrawUI() {
+    enum BrushSize tamanhoSalvo = tamanhoAtual;
+    tamanhoAtual = curto;
+    desenhandoUI = true;
+
+    // fundo da barra inteira
+    DrawRectangleCheio(0, 0, ALTURA - 1, UI_ALTURA - 1, corUIFundo);
+
+    // desenha as linhas separando os tipos de ferramentas
+    DrawLineBresenham(362, 8, 362, 51, corBotao); // ferramentas | espessuras
+    DrawLineBresenham(506, 8, 506, 51, corBotao); // espessuras | cores
+    DrawLineBresenham(628, 8, 628, 51, corBotao); // cores | ações (novo e salvar)
+
+    // ferramentas
+    for (int i = 0; i < 8; ++i) {
+        bool selecionada = ((int) estadoAtual == i);
+        DrawBotao(botoesFerramenta[i], selecionada);
+        DrawIcone(i, botoesFerramenta[i]);
+    }
+
+    // espessuras
+    for (int i = 0; i < 3; ++i) {
+        bool selecionada = (tamanhoSalvo == tamanhos[i]);
+        DrawBotao(botoesTamanho[i], selecionada);
+        DrawIcone(10 + i, botoesTamanho[i]);
+    }
+
+    for (int i = 0; i < 8; ++i)
+        DrawBotaoCor(i);
+
+    DrawBotao(botaoNovo, false);
+    DrawIcone(8, botaoNovo);
+    DrawBotao(botaoSalvar, false);
+    DrawIcone(9, botaoSalvar);
+
+    desenhandoUI = false;
+    tamanhoAtual = tamanhoSalvo;
+}
+
+bool dentroBotao(Botao b, int x, int y) {
+    return x >= b.x1 && x <= b.x2 && y >= b.y1 && y <= b.y2;
+}
+
+void cliqueUI(int x, int y) {
+    for (int i = 0; i < 8; ++i)
+        if (dentroBotao(botoesFerramenta[i], x, y)) {
+            selecionaFerramenta((enum Tool) i);
+        }
+    for (int i = 0; i < 3; ++i)
+        if (dentroBotao(botoesTamanho[i], x, y)) {
+            tamanhoAtual = tamanhos[i];
+        }
+    for (int i = 0; i < 8; ++i)
+        if (dentroBotao(botoesCor[i], x, y)) {
+            indiceCor = i;
+        }
+    if (dentroBotao(botaoNovo, x, y)) {
+        clearCanvas();
+    }
+    if (dentroBotao(botaoSalvar, x, y)) {
+        SaveImage("Imagem_Salva.png");
+    }
+}
+
+// atalhos de teclado (os mesmos da barra)
 void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int mods) {
     if(action == GLFW_PRESS) {
         if(key == GLFW_KEY_C) {
             clearCanvas();
         } else if(key == GLFW_KEY_B) {
-            estadoAtual = borracha;
+            selecionaFerramenta(borracha);
         } else if(key == GLFW_KEY_P) {
-            estadoAtual = pincel;
+            selecionaFerramenta(pincel);
         } else if(key == GLFW_KEY_L) {
-            estadoAtual = linha;
-            drawFun = DrawLineBresenham;
+            selecionaFerramenta(linha);
         } else if(key == GLFW_KEY_R) {
             if(mods == GLFW_MOD_SHIFT) {
-                estadoAtual = retanguloCheio;
-                drawFun = DrawRectangleCheio;
+                selecionaFerramenta(retanguloCheio);
             } else {
-                estadoAtual = retanguloVazio;
-                drawFun = DrawRectangleVazio;
+                selecionaFerramenta(retanguloVazio);
             }
         } else if(key == GLFW_KEY_O) {
-            if(mods == GLFW_MOD_SHIFT) {
-                estadoAtual = circuloCheio;
-                drawFun = DrawCircleCheio;
+            if (mods == GLFW_MOD_SHIFT) {
+                selecionaFerramenta(circuloCheio);
             } else {
-                estadoAtual = circuloVazio;
-                drawFun = DrawCircleVazio;
+                selecionaFerramenta(circuloVazio);
             }
         } else if(key == GLFW_KEY_F) {
-            estadoAtual = baldeDeTinta;
+            selecionaFerramenta(baldeDeTinta);
         } else if(key == GLFW_KEY_S) {
             if(mods == GLFW_MOD_CONTROL) {
                 SaveImage("teste.png");
             }
-        }
-        else if(key == GLFW_KEY_M) {
-            corAtual = (Color) MAGENTA;
         } else if(key == GLFW_KEY_1) {
             tamanhoAtual = curto;
         } else if(key == GLFW_KEY_2) {
@@ -330,13 +529,14 @@ void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int m
     }
 }
 
-
 // mouse mexendo
 void mousePosCallback(GLFWwindow *janela, double x, double y) {
+    y -= UI_ALTURA; // passa pra coordenada do canvas
+    if(cliqueNaUI) return; // clicou num botao e arrastou pro canvas, nao pinta
     switch(estadoAtual) {
         case pincel: {
             if(glfwGetMouseButton(janela, 0)) { // "arrastar"
-                putPixel((int) xMouse, (int) yMouse, corAtual);
+                putPixel((int) xMouse, (int) yMouse, paleta[indiceCor]);
                 // interpolação...
                 if(x != xMouse || y != yMouse) {
                     double dist = sqrt(pow(x - xMouse, 2) + pow(y - yMouse, 2));
@@ -347,7 +547,7 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
                         double t = (double) i / (double) amostras;
                         double vx = x * (1 - t) + xMouse * t;
                         double vy = y * (1 - t) + yMouse * t;
-                        putPixel((int) vx, (int) vy, corAtual);
+                        putPixel((int) vx, (int) vy, paleta[indiceCor]);
                     }
                 }
             }
@@ -379,30 +579,47 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
 
 // clique único
 void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
+    double xJanela, yJanela;
+    glfwGetCursorPos(janela, &xJanela, &yJanela);
+    double xCanvas = xJanela, yCanvas = yJanela - UI_ALTURA;
+
+    if(action == GLFW_RELEASE) cliqueNaUI = false;
+    // clique em cima da barra (se nao tiver no meio de um preview, ai deixa terminar o desenho)
+    if(yJanela < UI_ALTURA && !previewingDraw) {
+        if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
+            cliqueNaUI = true;
+            cliqueUI((int) xJanela, (int) yJanela);
+        }
+        return;
+    }
+
     switch(estadoAtual) {
         case pincel: {
             if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
-                putPixel((int) xMouse, (int) yMouse, corAtual);
+                putPixel((int) xCanvas, (int) yCanvas, paleta[indiceCor]);
                 // como eh so um clique (o mouse nao ta mexendo) nao precisa interpolar...
             }
             break;
         }
         case borracha: {
             if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
-                putPixel((int) xMouse, (int) yMouse, corBG);
+                putPixel((int) xCanvas, (int) yCanvas, corBG);
             }
             break;
         } case baldeDeTinta: {
-            FloodFill((int) xMouse, (int) yMouse, corAtual);
+            if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
+                FloodFill((int) xCanvas, (int) yCanvas, paleta[indiceCor]);
+            }
             break;
         }
         default: { // Eu acabei percebendo que todo código pra essas ferramentas tava ficando igual, ...
             // ...entao decidi usar ponteiro de funcao o.O
             if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
                 previewingDraw = false;
-                drawFun( (int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
+                drawFun( (int) startX, (int) startY, (int) xCanvas, (int) yCanvas, paleta[indiceCor]);
             } else if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && !previewingDraw) {
-                glfwGetCursorPos(janela, &startX, &startY);
+                startX = xCanvas;
+                startY = yCanvas;
                 previewingDraw = true;
             }
         }
@@ -410,7 +627,7 @@ void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
         // case linha: {
         //     if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
         //         previewingDraw = false;
-        //         DrawLineDDA( (int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
+        //         DrawLineDDA( (int) startX, (int) startY, (int) xMouse, (int) yMouse, paleta[indiceCor]);
         //     } else if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && !previewingDraw) {
         //         glfwGetCursorPos(janela, &startX, &startY);
         //         previewingDraw = true;
@@ -420,7 +637,7 @@ void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
         // case retanguloVazio: {
         //     if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
         //         previewingDraw = false;
-        //         DrawRectangleVazio( (int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
+        //         DrawRectangleVazio( (int) startX, (int) startY, (int) xMouse, (int) yMouse, paleta[indiceCor]);
         //     } else if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && !previewingDraw) {
         //         glfwGetCursorPos(janela, &startX, &startY);
         //         previewingDraw = true;
@@ -447,6 +664,7 @@ void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
 }
 
 
+
 int main(void) {
     clearCanvas();
     GLFWwindow *janela;
@@ -455,15 +673,14 @@ int main(void) {
     long int frameCount = 0;
 
     if(!glfwInit()) return -1;
-    glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+    glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE); // deixei o canvas com tamanho fixo
 
-    janela = glfwCreateWindow(ALTURA, LARGURA, "miniPaint!", NULL, NULL);
+    janela = glfwCreateWindow(ALTURA, LARGURA + UI_ALTURA, "miniPaint!", NULL, NULL);
 
     if(!janela) {
         glfwTerminate();
         return -1;
     }
-
 
     // cursor
     unsigned char pixels[8 * 8 * 4];
@@ -495,8 +712,25 @@ int main(void) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 
+    // mesma coisa pra barra de ferramentas
+    for (int i = 0; i < 13; ++i) {
+        int w, h;
+        icones[i] = stbi_load(icons[i], &w, &h, NULL, 4);
+        if (icones[i] == NULL || w != TAM_ICONE || h != TAM_ICONE) {
+            printf("Erro: icone %s nao abriu ou nao tem 32x32\n", icons[i]);
+            icones[i] = NULL; // o botao fica sem icone nenhum
+        }
+    }
+    GLuint uiTexture;
+    glGenTextures(1, &uiTexture);
+    glBindTexture(GL_TEXTURE_2D, uiTexture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, ALTURA, UI_ALTURA, 0,
+    GL_RGB, GL_UNSIGNED_BYTE, uiBuffer);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
     // borda da tela
-    DrawRectangleVazio(0, 0, 799, 599, (Color) {255, 0, 0});
+    DrawRectangleVazio(0, 0, 799, 599, (Color) {255, 0, 0}); // TODO: vai tirar isso?
 
     // eh melhor usar essas funções de callback do que ficar fazendo polling no laço principal
     glfwSetKeyCallback(janela, HandleKeyboard);
@@ -508,6 +742,7 @@ int main(void) {
 
         glfwPollEvents();
         glfwGetCursorPos(janela, &xMouse, &yMouse); // preciso disso pra fazer interpolacao qdo desenhar
+        yMouse -= UI_ALTURA; // coordenada do canvas
 
         // eh interessante ver os frames que a aplicação ta pegando
         // nao serve mto pra medir performance eu acho, mas da pra ter uma ideia
@@ -527,7 +762,7 @@ int main(void) {
             memcpy(tmpBuffer, canvas, ALTURA * LARGURA * 3);
             render = tmpBuffer;
             // ponteiro de funcao, pq tava tudo ficando igual
-            drawFun((int) startX, (int) startY, (int) xMouse, (int) yMouse, corAtual);
+            drawFun((int) startX, (int) startY, (int) xMouse, (int) yMouse, paleta[indiceCor]);
             render = tmpBuffer;
         }
         // mais coisa da textura, atualizando ela no buffer e enviando pro oepnGL dnv
@@ -536,11 +771,32 @@ int main(void) {
         glBindTexture(GL_TEXTURE_2D, canvasTextures);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, ALTURA, LARGURA,
             GL_RGB, GL_UNSIGNED_BYTE, render);
-
-
-
         // render
-        // ai cria um quadrado q cobre a tela inteira e "cola" a textura do canvas em cima dele
+        // o glViewport diz em que pedaco da janela desenhar, em pixels (o y conta de baixo pra cima)
+        // canvas: os 600 px de baixo da janela
+        glViewport(0, 0, ALTURA, LARGURA);
+        // ai cria um quadrado q cobre esse pedaco inteiro e "cola" a textura do canvas em cima dele
+        glBegin(GL_QUADS);
+        glTexCoord2f(0.0f, 0.0f);
+        glVertex2f(-1.0f, 1.0f);
+
+        glTexCoord2f(0.0f, 1.0f);
+        glVertex2f(-1.0f, -1.0f);
+
+        glTexCoord2f(1.0f, 1.0f);
+        glVertex2f(1.0f, -1.0f);
+
+        glTexCoord2f(1.0f, 0.0f);
+        glVertex2f(1.0f, 1.0f);
+        glEnd();
+
+        // barra redesenhada todo frame (eh pequena) pra mostrar a ferramenta/cor selecionada
+        DrawUI();
+        glBindTexture(GL_TEXTURE_2D, uiTexture);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, ALTURA, UI_ALTURA,
+            GL_RGB, GL_UNSIGNED_BYTE, uiBuffer);
+        // barra: os 60 px de cima (comeca em y = 600 contando de baixo)
+        glViewport(0, LARGURA, ALTURA, UI_ALTURA);
         glBegin(GL_QUADS);
         glTexCoord2f(0.0f, 0.0f);
         glVertex2f(-1.0f, 1.0f);
