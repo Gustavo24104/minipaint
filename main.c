@@ -20,6 +20,7 @@ enum Tool {
     circuloVazio,
     circuloCheio,
     baldeDeTinta,
+    selecionar,
 };
 
 enum BrushSize {
@@ -93,7 +94,6 @@ const Color corDestaque = {0, 100, 255};
 const Color corIcone = {0, 0, 0};
 
 // icones da barra: indices 0-7 sao as ferramentas(mesma ordem do enum); 8 da o clear, 9 salva e 10-12 sao as espessuras
-// o CMake define o caminho completo da pasta assets; se compilar sem ele, usa a pasta relativa
 #ifndef ASSETS
 #define ASSETS "assets/"
 #endif
@@ -127,9 +127,22 @@ void (*drawFun)(int, int, int, int, Color); // acabei percebendo q toda funcao d
 // ...cara, entao pensei q fosse melhor fazer com um ponteiro, ai da pra chamar "uma coisa so" ao inves de...
 // ...ficar fazendo vários if/else pra tudo
 
+typedef struct {
+    float m[3][3];
+} Matriz;
+
+bool selecionado = false;
+unsigned char selecao[ALTURA * LARGURA * 3]; // copia dos pixels selecionados
+int selX, selY, selW, selH;                  // retangulo de selecao
+Matriz selMatriz;                            // translada, rotaciona e escala
+
 void FloodFill(int xStart, int yStart, Color newColor);
+void applySelecao();
 
 void SaveImage(char *nomeArquivo) {
+    if (selecionado) {
+        applySelecao();
+    }
     stbi_write_png(nomeArquivo, ALTURA, LARGURA, 3, canvas, ALTURA * 3);
     printf("salvo!\n");
 }
@@ -349,7 +362,198 @@ void FloodFill(int xStart, int yStart, Color newColor) {
     free(stack);
 }
 
+// ---------------- Transformacoes ----------------
+
+Matriz Identidade() {
+    return (Matriz) {{{1, 0, 0},
+                      {0, 1, 0},
+                      {0, 0, 1}}};
+}
+
+Matriz Multiplica(Matriz A, Matriz B) {
+    Matriz C = {0};
+    for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+            for (int k = 0; k < 3; ++k)
+                C.m[i][j] += A.m[i][k] * B.m[k][j];
+    return C;
+}
+
+Matriz Translacao(float tx, float ty) {
+    return (Matriz) {{{1, 0, tx},
+                      {0, 1, ty},
+                      {0, 0, 1}}};
+}
+
+Matriz Escala(float sx, float sy) {
+    return (Matriz) {{{sx, 0, 0},
+                      {0, sy, 0},
+                      {0, 0, 1}}};
+}
+
+Matriz Rotacao(float graus) {
+    float a = graus * 3.14159265f / 180.0f;
+    return (Matriz) {{{cosf(a), -sinf(a), 0},
+                      {sinf(a), cosf(a), 0},
+                      {0, 0, 1}}};
+}
+
+Matriz gira(Matriz M, float cx, float cy) {
+    return Multiplica(Translacao(cx, cy), Multiplica(M, Translacao(-cx, -cy)));
+}
+
+void Aplica(Matriz M, float x, float y, float *nx, float *ny) {
+    *nx = M.m[0][0] * x + M.m[0][1] * y + M.m[0][2] * 1;
+    *ny = M.m[1][0] * x + M.m[1][1] * y + M.m[1][2] * 1;
+}
+
+Matriz Inversa(Matriz M) { //tem q usar isso aqui se nao fica cheio de buraco o resultado
+    float a = M.m[0][0], b = M.m[0][1], tx = M.m[0][2];
+    float c = M.m[1][0], d = M.m[1][1], ty = M.m[1][2];
+    float det = a * d - b * c;
+    Matriz R = Identidade();
+    R.m[0][0] = d / det;
+    R.m[0][1] = -b / det;
+    R.m[1][0] = -c / det;
+    R.m[1][1] = a / det;
+    R.m[0][2] = -(R.m[0][0] * tx + R.m[0][1] * ty);
+    R.m[1][2] = -(R.m[1][0] * tx + R.m[1][1] * ty);
+    return R;
+}
+
+// ---------------- Selecao ----------------
+
+// copia a regiao pro buffer da selecao e apaga ela do canvas
+void IniciaSelecao(int x1, int y1, int x2, int y2) {
+    if (x1 > x2) {
+        int tmp = x1;
+        x1 = x2;
+        x2 = tmp;
+    }
+    if (y1 > y2) {
+        int tmp = y1;
+        y1 = y2;
+        y2 = tmp;
+    }
+    if (x1 < 0) {
+        x1 = 0;
+    }
+    if (y1 < 0) {
+        y1 = 0;
+    }
+    if (x2 >= ALTURA) { //pra nao sair da tela
+        x2 = ALTURA - 1;
+    }
+    if (y2 >= LARGURA) { //pra nao sair da tela
+        y2 = LARGURA - 1;
+    }
+    if (x2 - x1 < 1 || y2 - y1 < 1) return; // selecao muito pequena
+
+    selX = x1;
+    selY = y1;
+    selW = x2 - x1 + 1;
+    selH = y2 - y1 + 1;
+    for (int y = 0; y < selH; ++y)
+        for (int x = 0; x < selW; ++x) {
+            unsigned char *origem = &canvas[((selY + y) * ALTURA + selX + x) * 3];
+            unsigned char *destino = &selecao[(y * selW + x) * 3];
+            destino[0] = origem[0];
+            destino[1] = origem[1];
+            destino[2] = origem[2];
+            setPixel(selX + x, selY + y, corBG);
+        }
+
+    selMatriz = Identidade();
+    selecionado = true;
+}
+
+// os 4 cantos da selecao ja transformados pela selMatriz
+void CantosSelecao(float px[4], float py[4]) {
+    float cantoX[4] = {selX, selX + selW, selX + selW, selX};
+    float cantoY[4] = {selY, selY, selY + selH, selY + selH};
+    for (int i = 0; i < 4; ++i)
+        Aplica(selMatriz, cantoX[i], cantoY[i], &px[i], &py[i]);
+}
+
+// desenha a selecao transformada
+// pra cada pixel de destino aplica a matriz INVERSA pra achar de qual pixel da selecao ele veio
+void DrawSelecao() {
+    Matriz inversa = Inversa(selMatriz);
+
+    // so precisa percorrer o retangulo que envolve os 4 cantos transformados
+    float px[4], py[4];
+    CantosSelecao(px, py);
+    float minX = px[0], maxX = px[0], minY = py[0], maxY = py[0];
+    for (int i = 1; i < 4; ++i) {
+        if (px[i] < minX) minX = px[i];
+        if (px[i] > maxX) maxX = px[i];
+        if (py[i] < minY) minY = py[i];
+        if (py[i] > maxY) maxY = py[i];
+    }
+
+    for (int y = (int) floorf(minY); y <= (int) ceilf(maxY); ++y)
+        for (int x = (int) floorf(minX); x <= (int) ceilf(maxX); ++x) {
+            float origemX, origemY;
+            Aplica(inversa, x + 0.5f, y + 0.5f, &origemX, &origemY); // + 0.5 = centro do pixel
+            int sx = (int) floorf(origemX) - selX;
+            int sy = (int) floorf(origemY) - selY;
+            if (sx < 0 || sx >= selW || sy < 0 || sy >= selH) continue; // fora da selecao
+
+            unsigned char *p = &selecao[(sy * selW + sx) * 3];
+            setPixel(x, y, (Color) {p[0], p[1], p[2]});
+        }
+}
+
+// contorno da selecao: liga os 4 cantos transformados com Bresenham
+void DrawBordaSelecao() {
+    float px[4], py[4];
+    CantosSelecao(px, py);
+
+    enum BrushSize tamanhoSalvo = tamanhoAtual;
+    tamanhoAtual = curto;
+    for (int i = 0; i < 4; ++i) {
+        int j = (i + 1) % 4;
+        DrawLineBresenham((int) px[i], (int) py[i], (int) px[j], (int) py[j], corDestaque);
+    }
+    tamanhoAtual = tamanhoSalvo;
+}
+
+// cola a selecao no canvas
+void applySelecao() {
+    selecionado = false;
+    previewingDraw = false;
+    DrawSelecao();
+}
+
+// junta mais uma transformacao M nas que a selecao ja tem
+void TransformaSelecao(Matriz M) {
+    selMatriz = Multiplica(M, selMatriz);
+}
+
+// teclas da selecao; devolve true se a tecla foi usada
+bool TeclaSelecao(int key) {
+    float cx, cy;
+    Aplica(selMatriz, selX + selW / 2.0f, selY + selH / 2.0f, &cx, &cy);
+
+    if (key == GLFW_KEY_LEFT) TransformaSelecao(Translacao(-5, 0));
+    else if (key == GLFW_KEY_RIGHT) TransformaSelecao(Translacao(5, 0));
+    else if (key == GLFW_KEY_UP) TransformaSelecao(Translacao(0, -5));
+    else if (key == GLFW_KEY_DOWN) TransformaSelecao(Translacao(0, 5));
+    else if (key == GLFW_KEY_E) TransformaSelecao(gira(Rotacao(15), cx, cy));
+    else if (key == GLFW_KEY_Q) TransformaSelecao(gira(Rotacao(-15), cx, cy));
+    else if (key == GLFW_KEY_EQUAL || key == GLFW_KEY_KP_ADD) TransformaSelecao(gira(Escala(1.1f, 1.1f), cx, cy));
+    else if (key == GLFW_KEY_MINUS || key == GLFW_KEY_KP_SUBTRACT) TransformaSelecao(gira(Escala(1 / 1.1f, 1 / 1.1f), cx, cy));
+    else if (key == GLFW_KEY_ENTER) applySelecao();
+    else if (key == GLFW_KEY_ESCAPE) { // desfaz tudo e devolve a regiao pro lugar
+        selMatriz = Identidade();
+        applySelecao();
+    }
+    else return false;
+    return true;
+}
+
 void clearCanvas() {
+    selecionado = false;
     // memset(buff, 125, ALTURA * LARGURA * 3);
     // for (int i = 0; i < ALTURA * LARGURA * 3; ++i) {
     //     buff[i] = 255;
@@ -363,6 +567,7 @@ void clearCanvas() {
 
 // ---------------- Interface ----------------
 void selecionaFerramenta(enum Tool t) {
+    if (selecionado) applySelecao();
     estadoAtual = t;
     if (t == linha) {
         drawFun = DrawLineBresenham;
@@ -378,6 +583,9 @@ void selecionaFerramenta(enum Tool t) {
     }
     else if (t == circuloCheio) {
         drawFun = DrawCircleCheio;
+    }
+    else if (t == selecionar) {
+        drawFun = DrawRectangleVazio;
     }
     // else NULL;
 }
@@ -492,6 +700,9 @@ void cliqueUI(int x, int y) {
 
 // atalhos de teclado (os mesmos da barra)
 void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int mods) {
+    if(selecionado && (action == GLFW_PRESS || action == GLFW_REPEAT) && TeclaSelecao(key)) {
+        return;
+    }
     if(action == GLFW_PRESS) {
         if(key == GLFW_KEY_C) {
             clearCanvas();
@@ -515,6 +726,8 @@ void HandleKeyboard(GLFWwindow *janela, int key, int scancode, int action, int m
             }
         } else if(key == GLFW_KEY_F) {
             selecionaFerramenta(baldeDeTinta);
+        } else if(key == GLFW_KEY_T) {
+            selecionaFerramenta(selecionar);
         } else if(key == GLFW_KEY_S) {
             if(mods == GLFW_MOD_CONTROL) {
                 SaveImage("teste.png");
@@ -576,7 +789,6 @@ void mousePosCallback(GLFWwindow *janela, double x, double y) {
     }
 }
 
-
 // clique único
 void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
     double xJanela, yJanela;
@@ -612,6 +824,20 @@ void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
             }
             break;
         }
+        case selecionar: {
+            if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT) {
+                if(selecionado) {
+                    applySelecao();
+                }
+                startX = xCanvas;
+                startY = yCanvas;
+                previewingDraw = true;
+            } else if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
+                previewingDraw = false;
+                IniciaSelecao((int) startX, (int) startY, (int) xCanvas, (int) yCanvas);
+            }
+            break;
+        }
         default: { // Eu acabei percebendo que todo código pra essas ferramentas tava ficando igual, ...
             // ...entao decidi usar ponteiro de funcao o.O
             if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
@@ -623,46 +849,8 @@ void mouseButtonCallback(GLFWwindow *janela, int button, int action, int mods) {
                 previewingDraw = true;
             }
         }
-        //
-        // case linha: {
-        //     if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
-        //         previewingDraw = false;
-        //         DrawLineDDA( (int) startX, (int) startY, (int) xMouse, (int) yMouse, paleta[indiceCor]);
-        //     } else if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && !previewingDraw) {
-        //         glfwGetCursorPos(janela, &startX, &startY);
-        //         previewingDraw = true;
-        //     }
-        //     break;
-        // }
-        // case retanguloVazio: {
-        //     if(action == GLFW_RELEASE && button == GLFW_MOUSE_BUTTON_LEFT && previewingDraw) {
-        //         previewingDraw = false;
-        //         DrawRectangleVazio( (int) startX, (int) startY, (int) xMouse, (int) yMouse, paleta[indiceCor]);
-        //     } else if(action == GLFW_PRESS && button == GLFW_MOUSE_BUTTON_LEFT && !previewingDraw) {
-        //         glfwGetCursorPos(janela, &startX, &startY);
-        //         previewingDraw = true;
-        //     }
-        //     break;
-        // }
-        // case retanguloCheio: {
-        //
-        //     break;
-        // }
-        // case circuloVazio: {
-        //
-        //     break;
-        // }
-        // case circuloCheio: {
-        //
-        //     break;
-        // }
-        // case baldeDeTinta: { // floodfill (nao recursivo - como otimizar?)
-        //
-        //     break;
-        // }
     }
 }
-
 
 
 int main(void) {
@@ -762,7 +950,19 @@ int main(void) {
             memcpy(tmpBuffer, canvas, ALTURA * LARGURA * 3);
             render = tmpBuffer;
             // ponteiro de funcao, pq tava tudo ficando igual
-            drawFun((int) startX, (int) startY, (int) xMouse, (int) yMouse, paleta[indiceCor]);
+            Color corPreview = paleta[indiceCor];
+            if(estadoAtual == selecionar) {
+                corPreview = corDestaque; // a selecao ja aparece azul enquanto arrasta
+            }
+            drawFun((int) startX, (int) startY, (int) xMouse, (int) yMouse, corPreview);
+            render = tmpBuffer;
+        }
+        if(selecionado) { // mesma ideia: desenha a selecao no buffer temporario ate confirmar
+            memcpy(tmpBuffer, canvas, ALTURA * LARGURA * 3);
+            previewingDraw = true; // pro setPixel escrever no tmpBuffer
+            DrawSelecao();
+            DrawBordaSelecao();
+            previewingDraw = false;
             render = tmpBuffer;
         }
         // mais coisa da textura, atualizando ela no buffer e enviando pro oepnGL dnv
@@ -790,12 +990,10 @@ int main(void) {
         glVertex2f(1.0f, 1.0f);
         glEnd();
 
-        // barra redesenhada todo frame (eh pequena) pra mostrar a ferramenta/cor selecionada
         DrawUI();
         glBindTexture(GL_TEXTURE_2D, uiTexture);
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, ALTURA, UI_ALTURA,
             GL_RGB, GL_UNSIGNED_BYTE, uiBuffer);
-        // barra: os 60 px de cima (comeca em y = 600 contando de baixo)
         glViewport(0, LARGURA, ALTURA, UI_ALTURA);
         glBegin(GL_QUADS);
         glTexCoord2f(0.0f, 0.0f);
